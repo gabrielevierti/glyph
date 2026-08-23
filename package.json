@@ -1,0 +1,22 @@
+{
+  "name": "@gabrielevierti/glyph",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "sim": "npm run dev -- --host 0.0.0.0",
+    "pack": "npm run build && evenhub pack"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "0.0.13"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.1.11",
+    "@evenrealities/evenhub-simulator": "^0.8.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.1.0"
+  }
+}
