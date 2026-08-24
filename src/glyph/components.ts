@@ -234,10 +234,11 @@ export function sparkline(r: GlyphRaster, rect: Rect, values: number[], opts: { 
  * Pill / tag — small rounded label for categories, status.
  */
 export function pill(r: GlyphRaster, x: number, y: number, text: string, g = T.colors.surface) {
-  const w = text.length * 6 + 16;
+  const style = { ...T.typography.caption, size: 9 };
+  const w = Math.round(r.measureText(text, style)) + 16;
   const h = 18;
   r.roundRect(x, y, w, h, h / 2, g);
-  r.text(text, x + w / 2, y + h / 2 + 3, { ...T.typography.caption, size: 9, align: "center" }, T.colors.secondary);
+  r.text(text, x + w / 2, y + h / 2 + 3, { ...style, align: "center" }, T.colors.secondary);
 }
 
 /**

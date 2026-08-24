@@ -65,18 +65,27 @@ export class GlyphFrame {
     return this;
   }
 
-  toFrame(): Frame {
-    const pixels = this.raster.toGray4();
+  /**
+   * Rasterize and slice into tiles.
+   * Pass an already-computed Gray4 buffer (from `raster.toGray4()`) to avoid
+   * paying for the supersample resolve twice in the same paint.
+   */
+  toFrame(pixels: Uint8Array = this.raster.toGray4()): Frame {
+    const W = this.raster.width;
+    const H = this.raster.height;
     const tiles: Tile[] = [];
     const { width: tw, height: th, tiles: layout } = this.tileLayout;
     for (const t of layout) {
+      if (t.x + tw > W || t.y + th > H) {
+        throw new Error(`Glyph: tile "${t.name}" (${t.x},${t.y} ${tw}x${th}) falls outside the ${W}x${H} framebuffer.`);
+      }
       const tile = new Uint8Array(tw * th);
       for (let y = 0; y < th; y++) {
-        const src = (t.y + y) * 576 + t.x;
+        const src = (t.y + y) * W + t.x;
         tile.set(pixels.subarray(src, src + tw), y * tw);
       }
       tiles.push({ id: t.id, name: t.name, rect: { x: t.x, y: t.y, width: tw, height: th }, pixels: packGray4(tile, tw, th) });
     }
-    return { width: 576, height: 288, pixels, tiles };
+    return { width: W, height: H, pixels, tiles };
   }
 }

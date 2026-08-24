@@ -228,7 +228,7 @@ function redraw() {
   ) {
     runtime
       .render(
-        frame.toFrame()
+        frame.toFrame(gray)
       )
       .catch(() => {
         connected = false;
@@ -428,7 +428,7 @@ layoutSel.addEventListener(
 
     if (runtime) {
       try {
-        runtime.stop?.();
+        void runtime.stop();
       } catch {
         // Ignore runtime shutdown errors.
       }

@@ -1,10 +1,10 @@
 import {
-  CreateStartUpPageContainer, ImageContainerProperty, ImageRawDataUpdate,
+  CreateStartUpPageContainer, ImageRawDataUpdate,
   ImageRawDataUpdateResult, StartUpPageCreateResult, TextContainerProperty,
   waitForEvenAppBridge, type EvenAppBridge
 } from "@evenrealities/even_hub_sdk";
-import type { TileLayout } from "./frame";
-import type { Frame } from "./types";
+import { TILE_LAYOUT_288 } from "./frame";
+import type { Frame, TileLayout } from "./types";
 
 export interface GlyphRuntimeOptions {
   tileLayout?: TileLayout; debug?: boolean; timeoutMs?: number;
@@ -58,7 +58,10 @@ export class GlyphRuntime {
   private onStateChange?: (s: { connected: boolean; message: string }) => void;
 
   constructor(options: GlyphRuntimeOptions = {}) {
-    this.tileLayout = options.tileLayout ?? { width: 288, height: 144, tiles: [] };
+    this.tileLayout = options.tileLayout ?? TILE_LAYOUT_288;
+    if (this.tileLayout.tiles.length === 0) {
+      throw new Error("Glyph: tileLayout must declare at least one tile.");
+    }
     this.debug = options.debug ?? false;
     this.timeoutMs = options.timeoutMs ?? 15000;
   }
@@ -80,7 +83,7 @@ export class GlyphRuntime {
       xPosition: t.x, yPosition: t.y, width: this.tileLayout.width, height: this.tileLayout.height,
       containerID: t.id, containerName: t.name, zOrderIndex: t.zOrder
     }));
-    const maxZ = Math.max(...images.map((i) => i.zOrderIndex));
+    const maxZ = images.reduce((m, i) => Math.max(m, i.zOrderIndex), 0);
     const eventCapture: TextContainerProperty = {
       xPosition: 0, yPosition: 0, width: 576, height: 288,
       borderWidth: 0, paddingLength: 0, containerID: 1, containerName: "events",
@@ -98,9 +101,18 @@ export class GlyphRuntime {
     this.emit({ connected: true, message: `Connected — ${images.length} tiles` });
   }
 
+  async stop(): Promise<void> {
+    this.started = false;
+    this.bridge = null;
+    this.queue = Promise.resolve();
+    this.emit({ connected: false, message: "Stopped" });
+  }
+
   async render(frame: Frame): Promise<void> {
     if (!this.bridge || !this.started) return;
-    this.queue = this.queue.then(async () => {
+    // Note: the queue is reset to a resolved promise after each render so a
+    // single failed tile update cannot permanently poison every later render.
+    const next = this.queue.then(async () => {
       for (const tile of frame.tiles) {
         const png = await tileToPng(tile.pixels, tile.rect.width, tile.rect.height);
         const res = await this.bridge!.updateImageRawData(
@@ -111,7 +123,8 @@ export class GlyphRuntime {
         }
       }
     });
-    return this.queue;
+    this.queue = next.catch(() => {});
+    return next;
   }
 
   onInput(cb: (e: GlyphInputEvent) => void): () => void {

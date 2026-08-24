@@ -167,6 +167,18 @@ export class GlyphRaster {
     this.ctx.restore();
   }
 
+  /** Measure a string using the same font resolution as `text()`. */
+  measureText(value: string, options: TextOptions = {}): number {
+    const font = options.font ?? "Inter, Arial, sans-serif";
+    const size = options.size ?? 16;
+    const weight = options.weight ?? 500;
+    this.ctx.save();
+    this.ctx.font = `${weight} ${size}px ${font}`;
+    const w = this.ctx.measureText(value).width;
+    this.ctx.restore();
+    return w;
+  }
+
   toGray4(): Uint8Array {
     const source = this.ctx.getImageData(
       0, 0, this.width * this.scale, this.height * this.scale
