@@ -14,8 +14,8 @@ import type { RenderContext, Screen } from "../glyph/index.js";
  */
 
 const notifications = [
-  { icon: "message" as const, title: "Giada", subtitle: "sto arrivando, 10 min", value: "now" },
-  { icon: "calendar" as const, title: "Turno scorte", subtitle: "Piazza Duomo · briefing", value: "16:00" },
+  { icon: "message" as const, title: "Mark", subtitle: "i'm coming, 10 min!", value: "now" },
+  { icon: "calendar" as const, title: "Meeting", subtitle: "Piazza Duomo · briefing", value: "16:00" },
   { icon: "mail" as const, title: "Even Realities", subtitle: "Re: Glyph framework", value: "12:04" },
   { icon: "bell" as const, title: "Bucato", subtitle: "ciclo terminato", value: "11:30" },
   { icon: "phone" as const, title: "Chiamata persa", subtitle: "+39 02 ···· 41", value: "10:58" }
