@@ -1,0 +1,94 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0e0c;
+  --panel: #141917;
+  --line: #26302b;
+  --text: #cfe6d8;
+  --dim: #6f8579;
+  --accent: #7ce0aa;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, #16201b 0%, var(--bg) 60%);
+  color: var(--text);
+}
+
+.shell { display: flex; flex-direction: column; gap: 14px; padding: 24px; }
+
+.stage {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 0 1px #000 inset, 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+.overlay { position: absolute; inset: 0; pointer-events: none; }
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.group { display: flex; align-items: center; gap: 10px; }
+.group label { display: flex; align-items: center; gap: 6px; color: var(--dim); }
+.group.stats { color: var(--dim); font-variant-numeric: tabular-nums; }
+
+#screen-name { min-width: 116px; text-align: center; font-weight: 600; letter-spacing: 0.02em; }
+
+button {
+  width: 26px; height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #1b221e;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+
+select, input[type="checkbox"] {
+  background: #1b221e;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.dot::before {
+  content: "";
+  display: inline-block;
+  width: 6px; height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #3a463f;
+  vertical-align: middle;
+}
+.dot.on { color: var(--accent); }
+.dot.on::before { background: var(--accent); box-shadow: 0 0 8px var(--accent); }

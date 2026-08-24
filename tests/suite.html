@@ -1,0 +1,138 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body><script type="module">
+import {
+  GlyphFrame, GlyphApp, TILE_LAYOUTS, packGray4, unpackGray4, hashBytes,
+  wrap, truncate, row, column, grow, screen as SCREEN, safe as SAFE, GlyphRaster
+} from "/src/glyph/index.ts";
+import { screens } from "/src/apps/index.ts";
+
+const results = [];
+const ok = (name, pass, detail = "") => results.push({ name, pass, detail });
+
+// 1. Gray4 pack/unpack round-trips exactly.
+{
+  const src = new Uint8Array(288 * 144).map((_, i) => i % 16);
+  const back = unpackGray4(packGray4(src, 288, 144), 288, 144);
+  ok("gray4 roundtrip", back.every((v, i) => v === src[i]));
+}
+
+// 2. Every shipped tile layout covers the surface exactly once.
+for (const [name, layout] of Object.entries(TILE_LAYOUTS)) {
+  const cover = new Uint8Array(576 * 288);
+  for (const t of layout.tiles)
+    for (let y = 0; y < layout.height; y++)
+      for (let x = 0; x < layout.width; x++) cover[(t.y + y) * 576 + t.x + x]++;
+  ok(`layout ${name} tiles the surface`, cover.every((v) => v === 1),
+     `w=${layout.width} h=${layout.height} n=${layout.tiles.length}`);
+  ok(`layout ${name} even tile width`, layout.width % 2 === 0);
+}
+
+// 3. Identical renders produce identical tile hashes (diffing is sound).
+{
+  const render = () => {
+    const f = new GlyphFrame({ tileLayout: TILE_LAYOUTS["192x96"] });
+    f.raster.clear(0);
+    screens[2].render({ g: f.raster, now: 5000, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 2 } });
+    return f.toFrame().tiles.map((t) => t.hash);
+  };
+  const a = render(), b = render();
+  ok("identical renders hash identically", a.every((h, i) => h === b[i]));
+}
+
+// 4. A clock ticking one second dirties only a few tiles, not all nine.
+{
+  const f = new GlyphFrame({ tileLayout: TILE_LAYOUTS["192x96"] });
+  const paint = (now) => {
+    f.raster.clear(0);
+    screens[2].render({ g: f.raster, now, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 2 } });
+    return f.toFrame().tiles.map((t) => t.hash);
+  };
+  const t0 = paint(5000);
+  const t1 = paint(6000);
+  const changed = t0.filter((h, i) => h !== t1[i]).length;
+  ok("one second dirties few tiles", changed <= 3, `${changed}/9 tiles changed`);
+}
+
+// 5. A tile falling outside the surface is rejected rather than corrupting memory.
+{
+  let threw = false;
+  try {
+    new GlyphFrame({ tileLayout: { width: 288, height: 144, tiles: [{ id: 1, name: "x", x: 400, y: 200, zOrder: 1 }] } });
+  } catch { threw = true; }
+  ok("out-of-bounds tile rejected", threw);
+}
+{
+  let threw = false;
+  try {
+    new GlyphFrame({ tileLayout: { width: 191, height: 96, tiles: [{ id: 1, name: "x", x: 0, y: 0, zOrder: 1 }] } });
+  } catch { threw = true; }
+  ok("odd tile width rejected", threw);
+}
+
+// 6. Text wrapping respects the box and truncation actually shortens.
+{
+  const r = new GlyphRaster({ width: 100, height: 40 });
+  const lines = wrap(r.measure, "the quick brown fox jumps over the lazy dog", { size: 12 }, 80);
+  ok("wrap fits width", lines.every((l) => r.measure(l, { size: 12 }) <= 80), `${lines.length} lines`);
+  const long = "a".repeat(200);
+  ok("wrap breaks unbreakable words", wrap(r.measure, long, { size: 12 }, 80).length > 1);
+  const cut = truncate(r.measure, "Even Realities G2 navigation", { size: 12 }, 60);
+  ok("truncate fits width", r.measure(cut, { size: 12 }) <= 60 && cut.endsWith("…"), cut);
+}
+
+// 7. Flex layout: fixed + grow sums to the container, gaps included.
+{
+  const box = { x: 0, y: 0, width: 300, height: 100 };
+  const cells = row(box, [{ size: 100 }, { size: grow(1) }, { size: grow(2) }], { gap: 10 });
+  const total = cells.reduce((a, c) => a + c.width, 0) + 20;
+  ok("flex row sums to container", Math.abs(total - 300) < 0.01, `${total}`);
+  ok("flex grow ratio respected", Math.abs(cells[2].width - cells[1].width * 2) < 0.01);
+  const rows = column(box, [{ size: grow(1) }, { size: grow(1) }], { gap: 0, padding: 10 });
+  ok("column padding applied", rows[0].y === 10 && rows[0].width === 280);
+}
+
+// 8. Every screen renders without throwing, at several points in time.
+for (const s of screens) {
+  let error = null;
+  try {
+    const f = new GlyphFrame();
+    for (const now of [0, 1234, 9999, 60000]) {
+      f.raster.clear(0);
+      s.render({ g: f.raster, now, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 0 } });
+    }
+    f.toFrame();
+  } catch (e) { error = String(e); }
+  ok(`screen ${s.name} renders clean`, error === null, error ?? "");
+}
+
+// 9. Nothing is drawn outside the 576x288 surface (checks the safe-area habit).
+{
+  const f = new GlyphFrame();
+  f.raster.clear(0);
+  screens[0].render({ g: f.raster, now: 3000, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 0 } });
+  const px = f.toLevels();
+  let edgeInk = 0;
+  for (let x = 0; x < 576; x++) { if (px[x] > 1) edgeInk++; if (px[287 * 576 + x] > 1) edgeInk++; }
+  ok("no ink on the extreme edge rows", edgeInk === 0, `${edgeInk} lit pixels`);
+}
+
+// 10. The app shell runs a paint loop and switches screens.
+{
+  let paints = 0;
+  const app = new GlyphApp({ screens, fps: 60, transitionMs: 60, onPaint: () => paints++ });
+  app.start();
+  await new Promise((r) => setTimeout(r, 120));
+  const before = app.screenIndex;
+  app.handleInput({ type: "tap" });
+  await new Promise((r) => setTimeout(r, 200));
+  ok("app paints", paints > 2, `${paints} paints`);
+  ok("tap advances screen", app.screenIndex === (before + 1) % screens.length);
+  const idx = app.screenIndex;
+  app.handleInput({ type: "scroll-up" });
+  await new Promise((r) => setTimeout(r, 200));
+  ok("scroll-up goes back", app.screenIndex === (idx - 1 + screens.length) % screens.length);
+  app.stop();
+}
+
+window.__results = results;
+window.__done = true;
+</script></body></html>

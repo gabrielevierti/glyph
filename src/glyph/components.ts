@@ -1,330 +1,481 @@
-import { GlyphRaster } from "./raster";
-import { glyphTheme as T } from "./theme";
-import { icon, type GlyphIconName } from "./icons";
-import type { Rect } from "./types";
+import { icon } from "./icons.js";
+import { fitStyle, truncate } from "./text.js";
+import { bearingToAngle, bottom, centerX, centerY, clamp, inset, polar, right } from "./geometry.js";
+import { gray as G, radius as R, space as S, type as T } from "./theme.js";
+import type { GlyphIconName } from "./icons.js";
+import type { GlyphRaster } from "./raster.js";
+import type { Corners, Gray, HAlign, Rect, TextStyle } from "./types.js";
 
-// ═══════════════════════════════════════════════════════════════
-// LAYOUT PRIMITIVES
-// ═══════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
+// Surfaces
+// ─────────────────────────────────────────────────────────────────────────────
 
-/** A rounded card container — the foundation of every widget */
-export function card(r: GlyphRaster, rect: Rect, opts: { fill?: number; stroke?: number; radius?: number; strokeWidth?: number } = {}) {
-  const rad = opts.radius ?? T.radius.md;
-  if (opts.fill !== undefined) r.roundRect(rect.x, rect.y, rect.width, rect.height, rad, opts.fill);
-  if (opts.stroke !== undefined) r.roundRect(rect.x, rect.y, rect.width, rect.height, rad, undefined, opts.stroke, opts.strokeWidth ?? 1);
+export interface PanelOptions {
+  fill?: Gray;
+  stroke?: Gray;
+  radius?: Corners;
+  strokeWidth?: number;
+  /** Draw a dotted texture inside the panel. */
+  texture?: boolean;
 }
 
-/** Horizontal divider line */
-export function divider(r: GlyphRaster, x1: number, y: number, x2: number, g = T.colors.divider) {
-  r.line(x1, y, x2, y, g, 1);
-}
-
-/** Vertical divider line */
-export function vdivider(r: GlyphRaster, x: number, y1: number, y2: number, g = T.colors.divider) {
-  r.line(x, y1, x, y2, g, 1);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// TYPOGRAPHY
-// ═══════════════════════════════════════════════════════════════
-
-/** All-caps label — for section headers, units, metadata */
-export function label(r: GlyphRaster, v: string, x: number, y: number, g = T.colors.secondary) {
-  r.text(v.toUpperCase(), x, y, T.typography.label, g);
-}
-
-/** Small caption text */
-export function caption(r: GlyphRaster, v: string, x: number, y: number, g = T.colors.muted) {
-  r.text(v, x, y, T.typography.caption, g);
-}
-
-/** Body text — readable at glance distance */
-export function body(r: GlyphRaster, v: string, x: number, y: number, g = T.colors.primary) {
-  r.text(v, x, y, T.typography.body, g);
-}
-
-/** Section title */
-export function title(r: GlyphRaster, v: string, x: number, y: number, g = T.colors.white) {
-  r.text(v, x, y, T.typography.title, g);
-}
-
-/** Headline — for widget headers */
-export function headline(r: GlyphRaster, v: string, x: number, y: number, g = T.colors.white) {
-  r.text(v, x, y, T.typography.headline, g);
-}
-
-/** Mono number — for data, time, counts */
-export function mono(r: GlyphRaster, v: string, x: number, y: number, g = T.colors.white, size?: number) {
-  r.text(v, x, y, size ? { ...T.typography.mono, size } : T.typography.mono, g);
-}
-
-/** Mono large — for primary numbers */
-export function monoLg(r: GlyphRaster, v: string, x: number, y: number, g = T.colors.white) {
-  r.text(v, x, y, T.typography.monoLg, g);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// WIDGETS
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * Clock widget — the centerpiece of the Even Realities dashboard.
- * Shows large time with optional date and secondary info.
- */
-export function clockWidget(
-  r: GlyphRaster, rect: Rect,
-  time: string, opts: { date?: string; ampm?: string; seconds?: string; icon?: GlyphIconName } = {}
-) {
-  card(r, rect, { fill: T.colors.surface, radius: T.radius.lg });
-  const cx = rect.x + rect.width / 2;
-  const cy = rect.y + rect.height / 2;
-
-  // Big time
-  r.text(time, cx, cy - 4, { ...T.typography.display, size: Math.min(48, rect.width * 0.22), align: "center", weight: 800 }, T.colors.white);
-
-  // Date below
-  if (opts.date) {
-    caption(r, opts.date, cx, cy + 18, T.colors.secondary);
+/** The base container. Everything else sits on one of these. */
+export function panel(g: GlyphRaster, r: Rect, opts: PanelOptions = {}): Rect {
+  const rad = opts.radius ?? R.lg;
+  if (opts.fill !== undefined) g.roundRect(r, rad, { fill: opts.fill });
+  if (opts.texture) {
+    g.scoped((layer) => { layer.clipRound(r, rad); layer.dots(r, 5, G.sunken, 0.5); });
   }
+  if (opts.stroke !== undefined) g.roundRect(r, rad, { stroke: opts.stroke, width: opts.strokeWidth ?? 1 });
+  return inset(r, S.md);
+}
 
-  // AM/PM or seconds
-  if (opts.ampm) {
-    caption(r, opts.ampm, rect.x + rect.width - 12, rect.y + 20, T.colors.muted);
-  }
-  if (opts.seconds) {
-    mono(r, opts.seconds, rect.x + rect.width - 12, rect.y + rect.height - 10, T.colors.muted, 10);
-  }
+/** A panel with a label strip along the top. Returns the content rect. */
+export function section(
+  g: GlyphRaster, r: Rect, label: string,
+  opts: PanelOptions & { accessory?: string; icon?: GlyphIconName } = {}
+): Rect {
+  panel(g, r, { fill: opts.fill ?? G.surface, stroke: opts.stroke, radius: opts.radius ?? R.lg, texture: opts.texture });
+  const headerY = r.y + 13;
+  let x = r.x + S.md;
+  if (opts.icon) { icon(g, opts.icon, x + 5, headerY, 12, G.tertiary); x += 17; }
+  // The accessory wins the space it needs; the label takes what is left.
+  const accessoryWidth = opts.accessory ? g.measure(opts.accessory, T.micro) + S.sm : 0;
+  const labelWidth = right(r) - S.md - accessoryWidth - x;
+  g.text(truncate(g.measure, label, T.label, labelWidth), x, headerY, T.label, G.secondary, "left", "middle");
+  if (opts.accessory) g.text(opts.accessory, right(r) - S.md, headerY, T.micro, G.tertiary, "right", "middle");
+  g.hline(r.x + S.md, right(r) - S.md, r.y + 24, G.hairline);
+  return inset({ x: r.x, y: r.y + 26, width: r.width, height: r.height - 26 }, { left: S.md, right: S.md, bottom: S.md });
+}
+
+/** Full-width label with rules on either side. */
+export function divider(g: GlyphRaster, r: Rect, label?: string, gray: Gray = G.hairline): void {
+  const y = centerY(r);
+  if (!label) { g.hline(r.x, right(r), y, gray); return; }
+  const w = g.measure(label, T.micro);
+  const pad = 6;
+  g.hline(r.x, centerX(r) - w / 2 - pad, y, gray);
+  g.hline(centerX(r) + w / 2 + pad, right(r), y, gray);
+  g.text(label, centerX(r), y, T.micro, G.tertiary, "center", "middle");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Data display
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MetricOptions {
+  unit?: string;
+  label?: string;
+  icon?: GlyphIconName;
+  /** Positive renders an up arrow, negative a down arrow. */
+  delta?: number;
+  deltaText?: string;
+  align?: HAlign;
+  valueStyle?: TextStyle;
+  gray?: Gray;
 }
 
 /**
- * Weather widget — temperature + condition + details.
- * Optimized for a quick glance while walking.
+ * The workhorse: one number, read at a glance, with its unit and a caption.
+ * The unit sits on the value's baseline rather than beside the label, because
+ * "12.4 kn" reads as one token and "12.4 / kn" reads as two.
  */
-export function weatherWidget(
-  r: GlyphRaster, rect: Rect,
-  temp: string, condition: string,
-  opts: { icon?: GlyphIconName; high?: string; low?: string; wind?: string; humidity?: string } = {}
-) {
-  card(r, rect, { fill: T.colors.surface, radius: T.radius.lg });
+export function metric(g: GlyphRaster, r: Rect, value: string, opts: MetricOptions = {}): void {
+  const align = opts.align ?? "left";
+  const requested = opts.valueStyle ?? T.numeralLg;
+  const anchorX = align === "left" ? r.x : align === "right" ? right(r) : centerX(r);
+  const labelY = bottom(r) - 5;
+  const hasLabel = !!opts.label;
+  const valueY = hasLabel ? bottom(r) - 18 : centerY(r);
 
-  const pad = 14;
-  const tx = rect.x + pad;
-
-  // Temperature (big)
-  r.text(temp, tx, rect.y + 38, { ...T.typography.displayMd, size: 32, weight: 800 }, T.colors.white);
-
-  // Condition
-  caption(r, condition, tx, rect.y + 54, T.colors.secondary);
-
-  // Icon (right side)
-  if (opts.icon) {
-    icon(r, opts.icon, rect.x + rect.width - 28, rect.y + 32, 28, T.colors.bright);
+  let x = anchorX;
+  if (opts.icon && align === "left") {
+    icon(g, opts.icon, r.x + 7, r.y + 8, 14, G.tertiary);
+    x = r.x + 18;
   }
 
-  // Details row at bottom
-  if (opts.high || opts.low || opts.wind || opts.humidity) {
-    const detailY = rect.y + rect.height - 10;
-    let dx = tx;
-    if (opts.high) { caption(r, `H:${opts.high}`, dx, detailY, T.colors.muted); dx += 40; }
-    if (opts.low) { caption(r, `L:${opts.low}`, dx, detailY, T.colors.muted); dx += 40; }
-    if (opts.wind) { caption(r, opts.wind, dx, detailY, T.colors.muted); dx += 44; }
-    if (opts.humidity) { caption(r, opts.humidity, dx, detailY, T.colors.muted); }
+  // The value is the one thing that must never be clipped, so the type scale
+  // yields to the box rather than the other way round.
+  const unitWidth = opts.unit ? g.measure(opts.unit, T.caption) + 6 : 0;
+  const style = fitStyle(
+    g.measure, value, requested,
+    Math.max(24, right(r) - x - unitWidth),
+    hasLabel ? r.height - 24 : r.height
+  );
+
+  const valueWidth = g.measure(value, style);
+  g.text(value, x, valueY, style, opts.gray ?? G.max, align, "bottom");
+
+  if (opts.unit) {
+    const unitX = align === "right" ? x - valueWidth - 3 : align === "center" ? x + valueWidth / 2 + 3 : x + valueWidth + 3;
+    g.text(opts.unit, unitX, valueY - 1, T.caption, G.tertiary, align === "right" ? "right" : "left", "bottom");
+  }
+  if (opts.label) g.text(opts.label, anchorX, labelY, T.label, G.secondary, align, "bottom");
+
+  if (opts.delta !== undefined && opts.delta !== 0) {
+    const up = opts.delta > 0;
+    icon(g, up ? "caret-up" : "caret-down", right(r) - 8, r.y + 9, 12, G.strong);
+    if (opts.deltaText) g.text(opts.deltaText, right(r) - 17, r.y + 9, T.micro, G.secondary, "right", "middle");
   }
 }
 
-/**
- * Metric widget — a single number with label and optional icon.
- * Perfect for steps, heart rate, battery, etc.
- */
-export function metricWidget(
-  r: GlyphRaster, rect: Rect,
-  value: string, unit: string,
-  opts: { icon?: GlyphIconName; accent?: number; fill?: number } = {}
-) {
-  card(r, rect, { fill: opts.fill ?? T.colors.surface, radius: T.radius.lg });
-  const hasIcon = !!opts.icon;
-  if (hasIcon) icon(r, opts.icon!, rect.x + 12, rect.y + 18, 18, opts.accent ?? T.colors.bright);
-  const tx = rect.x + (hasIcon ? 34 : 12);
-  const size = Math.min(26, rect.width * 0.4, rect.height * 0.45);
-  r.text(value, tx, rect.y + rect.height / 2 + 6, { ...T.typography.displaySm, size, weight: 800 }, opts.accent ?? T.colors.white);
-  label(r, unit, tx, rect.y + rect.height - 8, T.colors.secondary);
+/** Label above, value below — for dense readouts where the label leads. */
+export function stat(g: GlyphRaster, r: Rect, label: string, value: string, opts: { gray?: Gray; align?: HAlign; style?: TextStyle } = {}): void {
+  const align = opts.align ?? "left";
+  const x = align === "left" ? r.x : align === "right" ? right(r) : centerX(r);
+  g.text(label, x, r.y, T.micro, G.tertiary, align, "top");
+  g.text(value, x, r.y + 12, opts.style ?? T.numeral, opts.gray ?? G.primary, align, "top");
 }
 
-/**
- * List widget — scrollable list of items with icon, title, value, and chevron.
- * Optimized for glanceable reading.
- */
-export function listItem(
-  r: GlyphRaster, rect: Rect,
-  opts: { icon?: GlyphIconName; title: string; value?: string; checked?: boolean; chevron?: boolean }
-) {
-  const cy = rect.y + rect.height / 2;
-  let tx = rect.x + 12;
-
-  if (opts.icon) {
-    icon(r, opts.icon, tx + 8, cy, 16, T.colors.bright);
-    tx += 28;
+/** Key on the left, value on the right, aligned across a stack of rows. */
+export function keyValue(g: GlyphRaster, r: Rect, key: string, value: string, opts: { gray?: Gray; leader?: boolean } = {}): void {
+  const y = centerY(r);
+  g.text(key, r.x, y, T.caption, G.secondary, "left", "middle");
+  g.text(value, right(r), y, T.numeral, opts.gray ?? G.primary, "right", "middle");
+  if (opts.leader) {
+    const keyW = g.measure(key, T.caption);
+    const valW = g.measure(value, T.numeral);
+    const from = r.x + keyW + 5;
+    const to = right(r) - valW - 5;
+    if (to > from) g.line(from, y + 2, to, y + 2, { stroke: G.hairline, width: 1, dash: [1, 3], cap: "butt" });
   }
+}
+
+export interface ListRowOptions {
+  icon?: GlyphIconName;
+  title: string;
+  subtitle?: string;
+  value?: string;
+  meta?: string;
+  chevron?: boolean;
+  selected?: boolean;
+  checked?: boolean;
+}
+
+/** One row of a list. Selection is a filled well, not a colour change. */
+export function listRow(g: GlyphRaster, r: Rect, opts: ListRowOptions): void {
+  if (opts.selected) g.roundRect(r, R.md, { fill: G.raised });
+  const cy = centerY(r);
+  let x = r.x + S.md;
 
   if (opts.checked !== undefined) {
-    icon(r, opts.checked ? "check-square" : "square", tx + 6, cy, 14, opts.checked ? T.colors.bright : T.colors.muted);
-    tx += 24;
+    icon(g, opts.checked ? "check-square" : "square", x + 7, cy, 15, opts.checked ? G.max : G.disabled);
+    x += 24;
   }
-
-  r.text(opts.title, tx, cy + 4, { ...T.typography.body, size: 13 }, T.colors.white);
-
-  if (opts.value) {
-    r.text(opts.value, rect.x + rect.width - 12, cy + 4, { ...T.typography.caption, size: 10, align: "right" }, T.colors.secondary);
-  }
-  if (opts.chevron) {
-    icon(r, "chevron-right", rect.x + rect.width - 14, cy, 10, T.colors.muted);
-  }
-}
-
-/**
- * Progress bar — horizontal fill with track.
- */
-export function progressBar(r: GlyphRaster, rect: Rect, v: number, opts: { fill?: number; track?: number; radius?: number } = {}) {
-  const val = Math.max(0, Math.min(1, v));
-  const rad = opts.radius ?? rect.height / 2;
-  r.roundRect(rect.x, rect.y, rect.width, rect.height, rad, opts.track ?? T.colors.border);
-  if (val > 0.01) r.roundRect(rect.x, rect.y, Math.max(rect.height, rect.width * val), rect.height, rad, opts.fill ?? T.colors.bright);
-}
-
-/**
- * Segmented bar — discrete steps, good for goals/battery/levels.
- */
-export function segmentedBar(r: GlyphRaster, rect: Rect, segs: number, filled: number, opts: { fill?: number; track?: number } = {}) {
-  const gap = 3;
-  const segW = (rect.width - gap * (segs - 1)) / segs;
-  for (let i = 0; i < segs; i++) {
-    r.roundRect(rect.x + i * (segW + gap), rect.y, segW, rect.height, 2, i < filled ? (opts.fill ?? T.colors.bright) : (opts.track ?? T.colors.border));
-  }
-}
-
-/**
- * Activity ring — circular progress indicator.
- */
-export function activityRing(r: GlyphRaster, cx: number, cy: number, radius: number, p: number, opts: { gray?: number; bgGray?: number; width?: number } = {}) {
-  r.circle(cx, cy, radius, undefined, opts.bgGray ?? T.colors.border, opts.width ?? 4);
-  if (p > 0) r.arc(cx, cy, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p, opts.gray ?? T.colors.bright, opts.width ?? 4);
-}
-
-/**
- * Sparkline — mini chart for trends.
- */
-export function sparkline(r: GlyphRaster, rect: Rect, values: number[], opts: { gray?: number; fillGray?: number; min?: number; max?: number } = {}) {
-  if (values.length < 2) return;
-  const min = opts.min ?? Math.min(...values);
-  const max = opts.max ?? Math.max(...values);
-  const range = Math.max(0.0001, max - min);
-  const pts = values.map((v, i) => ({
-    x: rect.x + (i / (values.length - 1)) * rect.width,
-    y: rect.y + rect.height - ((v - min) / range) * rect.height
-  }));
-  if (opts.fillGray !== undefined) {
-    r.polygon([{ x: rect.x, y: rect.y + rect.height }, ...pts, { x: rect.x + rect.width, y: rect.y + rect.height }], opts.fillGray);
-  }
-  for (let i = 1; i < pts.length; i++) {
-    r.line(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y, opts.gray ?? T.colors.bright, 1.5);
-  }
-}
-
-/**
- * Pill / tag — small rounded label for categories, status.
- */
-export function pill(r: GlyphRaster, x: number, y: number, text: string, g = T.colors.surface) {
-  const style = { ...T.typography.caption, size: 9 };
-  const w = Math.round(r.measureText(text, style)) + 16;
-  const h = 18;
-  r.roundRect(x, y, w, h, h / 2, g);
-  r.text(text, x + w / 2, y + h / 2 + 3, { ...style, align: "center" }, T.colors.secondary);
-}
-
-/**
- * Notification badge — small dot with optional count.
- */
-export function badge(r: GlyphRaster, x: number, y: number, count?: number, g = T.colors.highlight) {
-  const text = count !== undefined ? (count > 9 ? "9+" : String(count)) : "";
-  const w = text ? (text.length > 1 ? 18 : 14) : 8;
-  const h = text ? 14 : 8;
-  if (text) {
-    r.roundRect(x - w / 2, y - h / 2, w, h, h / 2, g);
-    r.text(text, x, y + 2, { ...T.typography.caption, size: 8, align: "center" }, T.colors.off);
-  } else {
-    r.circle(x, y, 3, g);
-  }
-}
-
-/**
- * Status bar — top bar with time, battery, signal.
- */
-export function statusBar(
-  r: GlyphRaster,
-  opts: { time?: string; battery?: number; signal?: number; notifications?: number }
-) {
-  const y = 16;
-  if (opts.time) {
-    r.text(opts.time, 560, y, { ...T.typography.mono, size: 11, align: "right" }, T.colors.secondary);
-  }
-  let rx = 540;
-  if (opts.battery !== undefined) {
-    const fill = opts.battery > 0.2 ? T.colors.bright : T.colors.highlight;
-    const w = 18, h = 8;
-    r.roundRect(rx - w, y - 5, w - 2, h, 2, T.colors.border);
-    if (opts.battery > 0.01) r.roundRect(rx - w + 1, y - 4, Math.max(3, (w - 4) * opts.battery), h - 2, 1, fill);
-    r.fillRect(rx - 2, y - 3, 2, 4, T.colors.border);
-    rx -= 26;
-  }
-  if (opts.signal !== undefined) {
-    const bars = Math.max(1, Math.min(4, opts.signal));
-    for (let i = 0; i < 4; i++) {
-      const h = 3 + i * 2;
-      const col = i < bars ? T.colors.bright : T.colors.border;
-      r.line(rx - i * 4, y + 1, rx - i * 4, y + 1 - h, col, 2);
-    }
-    rx -= 20;
-  }
-  if (opts.notifications) {
-    badge(r, rx, y - 2, opts.notifications, T.colors.highlight);
-  }
-}
-
-/**
- * Tab bar — bottom navigation between app sections.
- */
-export function tabBar(r: GlyphRaster, y: number, tabs: Array<{ label: string; active?: boolean }>) {
-  const totalW = 544;
-  const tabW = totalW / tabs.length;
-  for (let i = 0; i < tabs.length; i++) {
-    const tx = 16 + i * tabW + tabW / 2;
-    const g = tabs[i].active ? T.colors.white : T.colors.muted;
-    r.text(tabs[i].label, tx, y, { ...T.typography.label, size: 9, align: "center" }, g);
-    if (tabs[i].active) {
-      r.line(tx - 16, y + 6, tx + 16, y + 6, T.colors.bright, 2);
-    }
-  }
-}
-
-/**
- * Page indicator dots.
- */
-export function pageDots(r: GlyphRaster, active: number, total: number, y = 278) {
-  const startX = 288 - (total - 1) * 7;
-  for (let i = 0; i < total; i++) {
-    r.circle(startX + i * 14, y, 2.5, i === active ? T.colors.white : T.colors.border);
-  }
-}
-
-/**
- * Toast / inline alert.
- */
-export function toast(r: GlyphRaster, rect: Rect, text: string, opts: { icon?: GlyphIconName; fill?: number } = {}) {
-  card(r, rect, { fill: opts.fill ?? T.colors.surfaceHover, radius: T.radius.md });
-  let tx = rect.x + 12;
   if (opts.icon) {
-    icon(r, opts.icon, tx + 8, rect.y + rect.height / 2, 14, T.colors.bright);
-    tx += 26;
+    icon(g, opts.icon, x + 8, cy, 16, opts.selected ? G.max : G.strong);
+    x += 26;
   }
-  r.text(text, tx, rect.y + rect.height / 2 + 4, { ...T.typography.body, size: 12 }, T.colors.primary);
+
+  const rightEdge = right(r) - S.md - (opts.chevron ? 14 : 0);
+  const valueWidth = opts.value ? g.measure(opts.value, T.numeral) + 10 : 0;
+  const textWidth = rightEdge - x - valueWidth;
+
+  if (opts.subtitle) {
+    g.textBox(opts.title, { x, y: cy - 15, width: textWidth, height: 16 }, T.bodyStrong, opts.selected ? G.max : G.primary, { wrap: false, vAlign: "middle" });
+    g.textBox(opts.subtitle, { x, y: cy + 1, width: textWidth, height: 14 }, T.caption, G.tertiary, { wrap: false, vAlign: "middle" });
+  } else {
+    g.textBox(opts.title, { x, y: r.y, width: textWidth, height: r.height }, T.body, opts.selected ? G.max : G.primary, { wrap: false, vAlign: "middle" });
+  }
+
+  if (opts.value) g.text(opts.value, rightEdge, cy, T.numeral, opts.selected ? G.max : G.secondary, "right", "middle");
+  if (opts.chevron) icon(g, "chevron-right", right(r) - S.md, cy, 12, G.disabled);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Indicators
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function progressBar(
+  g: GlyphRaster, r: Rect, value: number,
+  opts: { fill?: Gray; track?: Gray; radius?: number; ticks?: number } = {}
+): void {
+  const v = clamp(value, 0, 1);
+  const rad = opts.radius ?? r.height / 2;
+  g.roundRect(r, rad, { fill: opts.track ?? G.sunken });
+  if (opts.ticks) {
+    for (let i = 1; i < opts.ticks; i++) g.vline(r.x + (r.width * i) / opts.ticks, r.y, bottom(r), G.off);
+  }
+  if (v > 0.005) g.roundRect({ ...r, width: Math.max(r.height, r.width * v) }, rad, { fill: opts.fill ?? G.max });
+}
+
+/** Discrete segments — better than a smooth bar when the count matters. */
+export function segmentedBar(
+  g: GlyphRaster, r: Rect, segments: number, filled: number,
+  opts: { fill?: Gray; track?: Gray; gap?: number } = {}
+): void {
+  const gap = opts.gap ?? 3;
+  const w = (r.width - gap * (segments - 1)) / segments;
+  for (let i = 0; i < segments; i++) {
+    g.roundRect(
+      { x: r.x + i * (w + gap), y: r.y, width: w, height: r.height },
+      Math.min(2, r.height / 2),
+      { fill: i < filled ? (opts.fill ?? G.max) : (opts.track ?? G.sunken) }
+    );
+  }
+}
+
+export function battery(g: GlyphRaster, x: number, y: number, level: number, opts: { width?: number; height?: number; gray?: Gray } = {}): void {
+  const w = opts.width ?? 22;
+  const h = opts.height ?? 11;
+  const v = clamp(level, 0, 1);
+  g.roundRect({ x, y: y - h / 2, width: w, height: h }, 2.5, { stroke: opts.gray ?? G.secondary, width: 1 });
+  g.roundRect({ x: x + w + 1, y: y - 2.5, width: 2, height: 5 }, 1, { fill: opts.gray ?? G.secondary });
+  const inner = w - 4;
+  if (v > 0.02) {
+    g.roundRect({ x: x + 2, y: y - h / 2 + 2, width: Math.max(1.5, inner * v), height: h - 4 }, 1, { fill: v < 0.15 ? G.strong : G.max });
+  }
+}
+
+export function signalBars(g: GlyphRaster, x: number, y: number, level: number, bars = 4, opts: { height?: number } = {}): void {
+  const maxH = opts.height ?? 11;
+  for (let i = 0; i < bars; i++) {
+    const h = ((i + 1) / bars) * maxH;
+    g.rect({ x: x + i * 4, y: y + maxH / 2 - h, width: 2.5, height: h }, { fill: i < level ? G.max : G.hairline });
+  }
+}
+
+/** The top strip. Fixed to the 576-wide surface by design — it is chrome. */
+export function statusBar(
+  g: GlyphRaster, r: Rect,
+  opts: { title?: string; time?: string; battery?: number; signal?: number; icons?: GlyphIconName[] } = {}
+): void {
+  const cy = centerY(r);
+  if (opts.title) g.text(opts.title, r.x, cy, T.label, G.secondary, "left", "middle");
+  let x = right(r);
+  if (opts.battery !== undefined) { battery(g, x - 24, cy, opts.battery); x -= 34; }
+  if (opts.signal !== undefined) { signalBars(g, x - 14, cy, opts.signal); x -= 24; }
+  for (const name of opts.icons ?? []) { icon(g, name, x - 7, cy, 13, G.secondary); x -= 18; }
+  if (opts.time) { g.text(opts.time, x - 4, cy, T.numeral, G.primary, "right", "middle"); }
+}
+
+export function pageDots(g: GlyphRaster, cx: number, y: number, count: number, active: number): void {
+  const gap = 9;
+  const startX = cx - ((count - 1) * gap) / 2;
+  for (let i = 0; i < count; i++) {
+    if (i === active) g.circle(startX + i * gap, y, 2.6, { fill: G.max });
+    else g.circle(startX + i * gap, y, 2.2, { fill: G.border });
+  }
+}
+
+export function tabBar(g: GlyphRaster, r: Rect, tabs: string[], active: number): void {
+  const w = r.width / tabs.length;
+  tabs.forEach((tab, i) => {
+    const cx = r.x + i * w + w / 2;
+    const on = i === active;
+    g.text(tab, cx, centerY(r) - 2, T.micro, on ? G.max : G.disabled, "center", "middle");
+    if (on) g.roundRect({ x: cx - 12, y: bottom(r) - 4, width: 24, height: 2 }, 1, { fill: G.max });
+  });
+}
+
+/** Vertical scroll indicator for lists that overflow. */
+export function scrollbar(g: GlyphRaster, r: Rect, offset: number, visible: number, total: number): void {
+  if (total <= visible) return;
+  g.roundRect(r, r.width / 2, { fill: G.sunken });
+  const h = Math.max(10, (visible / total) * r.height);
+  const y = r.y + (offset / total) * r.height;
+  g.roundRect({ x: r.x, y: Math.min(y, bottom(r) - h), width: r.width, height: h }, r.width / 2, { fill: G.border });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Chips, buttons, overlays
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A small rounded tag. Width is measured, not guessed. */
+export function pill(
+  g: GlyphRaster, x: number, y: number, text: string,
+  opts: { fill?: Gray; gray?: Gray; icon?: GlyphIconName; height?: number; style?: TextStyle } = {}
+): number {
+  const style = opts.style ?? T.micro;
+  const h = opts.height ?? 17;
+  const iconW = opts.icon ? 14 : 0;
+  const w = g.measure(text, style) + 16 + iconW;
+  g.roundRect({ x, y: y - h / 2, width: w, height: h }, h / 2, { fill: opts.fill ?? G.raised });
+  if (opts.icon) icon(g, opts.icon, x + 12, y, 11, opts.gray ?? G.secondary);
+  g.text(text, x + 8 + iconW, y, style, opts.gray ?? G.primary, "left", "middle");
+  return w;
+}
+
+/** Outlined variant — reads as "state" rather than "chip". */
+export function tag(g: GlyphRaster, x: number, y: number, text: string, opts: { gray?: Gray; height?: number } = {}): number {
+  const h = opts.height ?? 16;
+  const w = g.measure(text, T.micro) + 14;
+  g.roundRect({ x, y: y - h / 2, width: w, height: h }, R.xs, { stroke: opts.gray ?? G.border, width: 1 });
+  g.text(text, x + w / 2, y, T.micro, opts.gray ?? G.secondary, "center", "middle");
+  return w;
+}
+
+export function badge(g: GlyphRaster, x: number, y: number, count?: number): void {
+  if (count === undefined) { g.circle(x, y, 3, { fill: G.max }); return; }
+  const text = count > 99 ? "99+" : String(count);
+  const w = Math.max(15, g.measure(text, T.micro) + 9);
+  g.roundRect({ x: x - w / 2, y: y - 7.5, width: w, height: 15 }, 7.5, { fill: G.max });
+  g.text(text, x, y, { ...T.micro, size: 9 }, G.off, "center", "middle");
+}
+
+export function button(
+  g: GlyphRaster, r: Rect, text: string,
+  opts: { icon?: GlyphIconName; primary?: boolean; focused?: boolean } = {}
+): void {
+  const fill = opts.primary ? G.max : G.raised;
+  const fg = opts.primary ? G.off : G.primary;
+  g.roundRect(r, R.md, { fill });
+  if (opts.focused) g.roundRect(inset(r, -2.5), R.md + 2, { stroke: G.max, width: 1.5 });
+  const iconW = opts.icon ? 18 : 0;
+  const textW = g.measure(text, T.bodyStrong);
+  const startX = centerX(r) - (textW + iconW) / 2;
+  if (opts.icon) icon(g, opts.icon, startX + 7, centerY(r), 14, fg);
+  g.text(text, startX + iconW, centerY(r), T.bodyStrong, fg, "left", "middle");
+}
+
+export function toggle(g: GlyphRaster, x: number, y: number, on: boolean, width = 32): void {
+  const h = width * 0.56;
+  g.roundRect({ x, y: y - h / 2, width, height: h }, h / 2, { fill: on ? G.max : G.border });
+  g.circle(on ? x + width - h / 2 : x + h / 2, y, h / 2 - 2.5, { fill: on ? G.off : G.surface });
+}
+
+/** Transient message strip. */
+export function toast(g: GlyphRaster, r: Rect, text: string, opts: { icon?: GlyphIconName; alpha?: number } = {}): void {
+  g.scoped((layer) => {
+    layer.roundRect(r, R.pill, { fill: G.raised, alpha: opts.alpha ?? 1 });
+    layer.roundRect(r, R.pill, { stroke: G.border, width: 1, alpha: opts.alpha ?? 1 });
+    let x = r.x + 16;
+    if (opts.icon) { icon(layer, opts.icon, x + 7, centerY(r), 14, G.max); x += 24; }
+    layer.text(text, x, centerY(r), T.body, G.primary, "left", "middle");
+  });
+}
+
+/** Centred placeholder for "nothing here yet". */
+export function emptyState(g: GlyphRaster, r: Rect, iconName: GlyphIconName, title: string, subtitle?: string): void {
+  const cy = centerY(r) - (subtitle ? 10 : 4);
+  icon(g, iconName, centerX(r), cy - 18, 30, G.disabled);
+  g.text(title, centerX(r), cy + 10, T.title, G.secondary, "center", "middle");
+  if (subtitle) g.textBox(subtitle, { x: r.x + 40, y: cy + 22, width: r.width - 80, height: 32 }, T.caption, G.tertiary, { hAlign: "center" });
+}
+
+/** Dim everything behind a foreground panel. */
+export function scrim(g: GlyphRaster, r: Rect, level = 0.5): void {
+  g.rect(r, { fill: G.off, alpha: level });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Instruments
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A proper compass rose: cardinal letters, minor ticks, a fixed lubber line and
+ * an optional second pointer (wind, next waypoint) that rotates with the card.
+ */
+export function compassRose(
+  g: GlyphRaster, cx: number, cy: number, radius: number, heading: number,
+  opts: { pointer?: number; pointerLabel?: string; showValue?: boolean; ticks?: boolean } = {}
+): void {
+  g.circle(cx, cy, radius, { stroke: G.border, width: 1 });
+
+  if (opts.ticks !== false) {
+    for (let deg = 0; deg < 360; deg += 15) {
+      const a = bearingToAngle(deg - heading);
+      const major = deg % 45 === 0;
+      const from = polar(cx, cy, radius - (major ? 7 : 4), a);
+      const to = polar(cx, cy, radius - 1, a);
+      g.line(from.x, from.y, to.x, to.y, { stroke: major ? G.secondary : G.hairline, width: major ? 1.5 : 1, cap: "butt" });
+    }
+  }
+
+  const cardinals: Array<[string, number]> = [["N", 0], ["E", 90], ["S", 180], ["W", 270]];
+  for (const [letter, deg] of cardinals) {
+    const p = polar(cx, cy, radius - 16, bearingToAngle(deg - heading));
+    g.text(letter, p.x, p.y, letter === "N" ? T.bodyStrong : T.caption, letter === "N" ? G.max : G.secondary, "center", "middle");
+  }
+
+  if (opts.pointer !== undefined) {
+    const a = bearingToAngle(opts.pointer - heading);
+    const tip = polar(cx, cy, radius - 22, a);
+    const leftP = polar(cx, cy, radius - 33, a - 0.16);
+    const rightP = polar(cx, cy, radius - 33, a + 0.16);
+    g.polygon([tip, leftP, rightP], { fill: G.strong });
+    if (opts.pointerLabel) {
+      const lp = polar(cx, cy, radius - 40, a);
+      g.text(opts.pointerLabel, lp.x, lp.y, T.micro, G.tertiary, "center", "middle");
+    }
+  }
+
+  // Fixed lubber line: the boat, not the card, is what stays still.
+  g.polygon(
+    [{ x: cx, y: cy - radius + 2 }, { x: cx - 5, y: cy - radius - 7 }, { x: cx + 5, y: cy - radius - 7 }],
+    { fill: G.max }
+  );
+
+  if (opts.showValue !== false) {
+    g.text(`${Math.round(heading).toString().padStart(3, "0")}°`, cx, cy, T.numeralLg, G.max, "center", "middle");
+  }
+}
+
+/**
+ * Artificial horizon. Pitch shifts the horizon line, roll rotates it.
+ * Clipped to a circle so the rotation never bleeds into the layout.
+ */
+export function attitudeIndicator(
+  g: GlyphRaster, cx: number, cy: number, radius: number, pitch: number, roll: number
+): void {
+  // Sky and ground live inside a circular clip so the roll rotation cannot
+  // bleed into the surrounding layout.
+  g.scoped((layer) => {
+    layer.clipCircle(cx, cy, radius);
+    layer.rect({ x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2 }, { fill: G.off });
+    layer.rotateAbout(cx, cy, (-roll * Math.PI) / 180);
+    const horizonY = cy + pitch * 2;
+    layer.rect({ x: cx - radius * 2, y: horizonY, width: radius * 4, height: radius * 2 }, { fill: G.sunken });
+    layer.hatch({ x: cx - radius * 2, y: horizonY, width: radius * 4, height: radius * 2 }, 5, G.hairline);
+    layer.hline(cx - radius * 1.4, cx + radius * 1.4, horizonY, G.max, 1.5);
+    for (const step of [-20, -10, 10, 20]) {
+      const y = horizonY - step * 2;
+      const w = step % 20 === 0 ? 16 : 9;
+      layer.hline(cx - w, cx + w, y, G.disabled);
+    }
+  });
+  // Fixed aircraft reference.
+  g.line(cx - radius * 0.5, cy, cx - radius * 0.15, cy, { stroke: G.max, width: 2 });
+  g.line(cx + radius * 0.15, cy, cx + radius * 0.5, cy, { stroke: G.max, width: 2 });
+  g.circle(cx, cy, 2, { fill: G.max });
+  g.circle(cx, cy, radius, { stroke: G.border, width: 1.5 });
+}
+
+/** Wind arrow with speed, drawn as a barb pointing the way the wind is going. */
+export function windIndicator(
+  g: GlyphRaster, cx: number, cy: number, radius: number, direction: number, speed: number, unit = "kn"
+): void {
+  g.circle(cx, cy, radius, { stroke: G.hairline, width: 1, dash: [2, 3] });
+  const a = bearingToAngle(direction + 180);
+  const tip = polar(cx, cy, radius, a);
+  const tail = polar(cx, cy, -radius * 0.75, a);
+  g.line(tail.x, tail.y, tip.x, tip.y, { stroke: G.strong, width: 2 });
+  const l = polar(tip.x, tip.y, radius * 0.35, a + 2.5);
+  const rr = polar(tip.x, tip.y, radius * 0.35, a - 2.5);
+  g.polygon([tip, l, rr], { fill: G.max });
+  // Knock the barb out behind the readout — the number has to stay legible
+  // whichever way the wind is blowing.
+  g.circle(cx, cy, radius * 0.46, { fill: G.off });
+  g.text(String(speed), cx, cy - 3, T.numeral, G.max, "center", "middle");
+  g.text(unit, cx, cy + 8, { ...T.micro, size: 8 }, G.tertiary, "center", "middle");
+}
+
+/** Speed roundel — the European sign, which reads instantly. */
+export function speedLimit(g: GlyphRaster, cx: number, cy: number, radius: number, limit: number, over = false): void {
+  if (over) g.circle(cx, cy, radius + 4, { stroke: G.strong, width: 1.5, dash: [3, 4] });
+  g.circle(cx, cy, radius, { fill: G.max });
+  g.circle(cx, cy, radius - 3.5, { fill: G.off });
+  g.text(String(limit), cx, cy + 1, { ...T.numeralLg, size: radius * 1.05 }, G.max, "center", "middle");
+}
+
+/** Big directional maneuver arrow for navigation. */
+export function maneuverArrow(g: GlyphRaster, cx: number, cy: number, size: number, kind: "left" | "right" | "straight" | "uturn" | "slight-left" | "slight-right"): void {
+  const name: GlyphIconName =
+    kind === "left" ? "corner-left"
+      : kind === "right" ? "corner-right"
+        : kind === "uturn" ? "u-turn"
+          : kind === "slight-left" ? "arrow-up-left"
+            : kind === "slight-right" ? "arrow-up-right"
+              : "arrow-up";
+  icon(g, name, cx, cy, size, G.max, { width: Math.max(2, size / 12) });
 }

@@ -1,0 +1,58 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>body{margin:0;background:#000}</style></head>
+<body><canvas id="sheet"></canvas>
+<script type="module">
+import { GlyphFrame, grayToRgba, screen as SCREEN, safe as SAFE } from "/src/glyph/index.ts";
+import { screens } from "/src/apps/index.ts";
+
+// Fixed timestamps keep the snapshots deterministic despite animated screens.
+const CLOCKS = [4200, 4200, 5000, 3000, 3000, 2000];
+const COLS = 2, PAD = 26, GAP = 22, LABEL = 26;
+
+const shots = {};
+const rendered = screens.map((screen, i) => {
+  const frame = new GlyphFrame({ supersample: 3 });
+  frame.raster.clear(0);
+  screen.render({
+    g: frame.raster, now: CLOCKS[i] ?? 3000,
+    screen: { x: 0, y: 0, ...SCREEN }, safe: SAFE,
+    app: { screens, screenIndex: i }
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = SCREEN.width;
+  canvas.height = SCREEN.height;
+  const ctx = canvas.getContext("2d");
+  const image = ctx.createImageData(SCREEN.width, SCREEN.height);
+  image.data.set(grayToRgba(frame.toLevels()));
+  ctx.putImageData(image, 0, 0);
+  shots[screen.name] = canvas.toDataURL("image/png");
+  return canvas;
+});
+
+const rows = Math.ceil(screens.length / COLS);
+const sheet = document.getElementById("sheet");
+sheet.width = PAD * 2 + COLS * SCREEN.width + (COLS - 1) * GAP;
+sheet.height = PAD * 2 + rows * (SCREEN.height + LABEL) + (rows - 1) * GAP;
+const ctx = sheet.getContext("2d");
+ctx.fillStyle = "#070a08";
+ctx.fillRect(0, 0, sheet.width, sheet.height);
+ctx.imageSmoothingEnabled = false;
+
+rendered.forEach((canvas, i) => {
+  const x = PAD + (i % COLS) * (SCREEN.width + GAP);
+  const y = PAD + Math.floor(i / COLS) * (SCREEN.height + LABEL + GAP);
+  ctx.fillStyle = "#8fdcb2";
+  ctx.font = "600 12px Inter, Arial, sans-serif";
+  ctx.letterSpacing = "1.4px";
+  ctx.fillText(screens[i].name.toUpperCase(), x + 1, y + 13);
+  ctx.letterSpacing = "0px";
+  ctx.drawImage(canvas, x, y + LABEL - 6);
+  ctx.strokeStyle = "#1d2a23";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + LABEL - 6 + 0.5, SCREEN.width - 1, SCREEN.height - 1);
+});
+
+window.__shots = shots;
+window.__sheet = sheet.toDataURL("image/png");
+window.__done = true;
+</script></body></html>

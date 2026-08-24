@@ -1,4 +1,6 @@
 import { defineConfig } from "vite";
+
 export default defineConfig({
-  server: { host: true, port: 5173, cors: true }
+  server: { host: true, port: 5173, cors: true },
+  build: { target: "es2022", outDir: "dist" }
 });
