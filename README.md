@@ -1,7 +1,5 @@
 # Glyph
 
-![demo](img/glyph_demo.mp4)
-
 A graphics and UI framework for the **Even Realities G2**.
 
 Glyph exists so that G2 apps can look like designed interfaces instead of collections of text containers and hand-placed polygons. You draw a complete screen into a 576×288 framebuffer using real primitives — paths, gradients, clipping, transforms, measured text — and Glyph slices it into image tiles and ships only the ones that changed.
