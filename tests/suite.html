@@ -1,7 +1,8 @@
 <!doctype html><html><head><meta charset="utf-8"></head><body><script type="module">
 import {
   GlyphFrame, GlyphApp, TILE_LAYOUTS, packGray4, unpackGray4, hashBytes,
-  wrap, truncate, row, column, grow, screen as SCREEN, safe as SAFE, GlyphRaster
+  wrap, truncate, row, column, grow, screen as SCREEN, safe as SAFE, GlyphRaster,
+  setSurfaceStyle, inkBudget
 } from "/src/glyph/index.ts";
 import { screens } from "/src/apps/index.ts";
 
@@ -115,7 +116,23 @@ for (const s of screens) {
   ok("no ink on the extreme edge rows", edgeInk === 0, `${edgeInk} lit pixels`);
 }
 
-// 10. The app shell runs a paint loop and switches screens.
+// 10. Every screen stays inside the ink budget — this is a see-through display,
+//     and mean level is the fraction of the world the UI is hiding.
+{
+  setSurfaceStyle("outline");
+  for (const s of screens) {
+    const f = new GlyphFrame({ supersample: 2 });
+    f.raster.clear(0);
+    s.render({ g: f.raster, now: 3000, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 0 } });
+    const px = f.toLevels();
+    let sum = 0;
+    for (let i = 0; i < px.length; i++) sum += px[i];
+    const ink = sum / (px.length * 15);
+    ok(`ink budget ${s.name}`, ink <= inkBudget, `${(ink * 100).toFixed(1)}% of full brightness`);
+  }
+}
+
+// 11. The app shell runs a paint loop and switches screens.
 {
   let paints = 0;
   const app = new GlyphApp({ screens, fps: 60, transitionMs: 60, onPaint: () => paints++ });

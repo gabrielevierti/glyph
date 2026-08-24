@@ -28,6 +28,28 @@ await runtime.render(frame.toFrame());
 
 Levels are integers `0`–`15`, not CSS colors. `gray` in the theme names them by role — `surface`, `border`, `secondary`, `strong`, `max` — which is what keeps six screens looking like one product.
 
+## Outline by default
+
+The G2 is see-through. Every lit pixel is a pixel of the world you cannot see through, so a filled card that reads as "elevated" on a phone reads as "smudge on the lens" on a waveguide.
+
+Glyph's default surface style is therefore `outline`: panels are a hairline border and the content inside them, list selection is an edge marker rather than a filled well, chart areas are hatched rather than flooded, progress tracks are outlines, and the speed roundel is a ring rather than a disc. Fills survive only where the element is small enough that solidity costs nothing and legibility needs it — badges, progress fills, the knockout behind the wind readout.
+
+```ts
+import { setSurfaceStyle } from "./glyph";
+
+setSurfaceStyle("outline");  // default — for wearing
+setSurfaceStyle("filled");   // for screenshots and the preview
+```
+
+Measured across the six screens, switching to outline **more than halves the ink** and cuts lit pixels by about five times:
+
+| | filled | outline |
+|---|---|---|
+| mean ink (fraction of full brightness) | 11.6% | **5.4%** |
+| pixels lit at all | ~65% | ~12% |
+
+`npm run ink` prints the table per screen, and the test suite asserts every screen stays under `inkBudget` (18%). Ink is the metric a see-through display cares about that a phone never would — it is the fraction of the wearer's view the UI is hiding.
+
 ## Install
 
 ```bash
@@ -77,6 +99,8 @@ Everything takes a geometry and a single `Paint` (`fill`, `stroke`, `width`, `da
 | **State** | `save` `restore` `scoped` `translate` `rotate` `rotateAbout` `scaleBy` `clipRect` `clipRound` `clipCircle` `clipPath` |
 | **Tone** | `gradient` `radialGradient` `ditherRect` `hatch` `dots` `gridLines` `blit` `layer` `drawRaster` |
 | **Text** | `text` `textBox` (wrap, align, ellipsis) `measure` `capHeight` — and `wrap` `truncate` `fitStyle` standalone |
+
+Components respect the surface style automatically, so a screen written once works in both modes without branching.
 
 **On tone:** Canvas gradients band badly once you quantize to 16 levels. `gradient`, `radialGradient` and `ditherRect` compute the ramp per logical pixel and apply a 4×4 ordered dither, which is the difference between a ramp and a staircase. See the Primitives screen.
 
@@ -160,11 +184,12 @@ Tiles go over the wire as PNG, because that is what the image containers accept 
 ## Testing
 
 ```bash
-npm test        # 29 assertions, rendered in real Chromium
+npm test           # 35 assertions, rendered in real Chromium
+npm run ink        # occlusion report, filled vs outline, per screen
 npm run snapshot   # re-render img/screens/*.png and img/splash.png
 ```
 
-Glyph's output is pixels, so the only test worth writing is one that rasterizes. Vite serves the TypeScript, Playwright opens the suite. It covers Gray4 round-tripping, tile-layout coverage and rejection, hash stability, dirty-tile counts, text wrap/truncate bounds, flex arithmetic, every screen rendering clean at four timestamps, safe-area edge bleed, and the app shell's paint loop and input routing.
+Glyph's output is pixels, so the only test worth writing is one that rasterizes. Vite serves the TypeScript, Playwright opens the suite. It covers Gray4 round-tripping, tile-layout coverage and rejection, hash stability, dirty-tile counts, text wrap/truncate bounds, flex arithmetic, every screen rendering clean at four timestamps, safe-area edge bleed, per-screen ink budget, and the app shell's paint loop and input routing.
 
 The three reference screens double as the visual regression suite.
 
@@ -188,6 +213,7 @@ npm run pack     # .ehpk for the Even Hub developer portal
 - **`statusBar` assumes a 576-wide surface.** It is chrome, not a component.
 - **No headless rendering outside a browser.** `GlyphRaster` takes an injected `createCanvas`, so a node-canvas backend is a small change, but it is not written.
 - **Dirty tracking is per tile, not per region.** A one-pixel change repaints its whole tile.
+- **Ink is measured, not enforced at draw time.** Nothing stops a screen flooding the surface; the budget is a test, not a runtime guard.
 
 ## Roadmap
 

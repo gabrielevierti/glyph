@@ -1,6 +1,6 @@
 import { bottom, clamp, remap, right } from "./geometry.js";
 import { fitStyle, truncate } from "./text.js";
-import { gray as G, type as T } from "./theme.js";
+import { gray as G, isOutline, type as T } from "./theme.js";
 import type { GlyphRaster } from "./raster.js";
 import type { Gray, Point, Rect } from "./types.js";
 
@@ -90,12 +90,22 @@ export function lineChart(g: GlyphRaster, box: Rect, series: Series[], axis: Axi
     const pts = pointsFor(s.values, plot, min, max);
     if (pts.length < 2) continue;
     if (s.fill !== undefined) {
+      // A solid area fill is the single largest block of ink a chart can put on
+      // a see-through display, so outline mode hatches it instead.
       g.scoped((layer) => {
         layer.clipRect(plot);
-        layer.polygon(
-          [{ x: pts[0].x, y: bottom(plot) }, ...pts, { x: pts[pts.length - 1].x, y: bottom(plot) }],
-          { fill: s.fill }
-        );
+        const area = [{ x: pts[0].x, y: bottom(plot) }, ...pts, { x: pts[pts.length - 1].x, y: bottom(plot) }];
+        if (isOutline()) {
+          layer.scoped((inner) => {
+            inner.ctx.beginPath();
+            area.forEach((pt, i) => (i === 0 ? inner.ctx.moveTo(pt.x, pt.y) : inner.ctx.lineTo(pt.x, pt.y)));
+            inner.ctx.closePath();
+            inner.ctx.clip();
+            inner.hatch(plot, 6, G.hairline, Math.PI / 4, 1);
+          });
+        } else {
+          layer.polygon(area, { fill: s.fill });
+        }
       });
     }
     const paint = { stroke: s.gray ?? G.max, width: s.width ?? 1.5, dash: s.dash };
@@ -113,7 +123,7 @@ export function sparkline(
   const min = opts.min ?? Math.min(...values);
   const max = opts.max ?? Math.max(...values);
   const pts = pointsFor(values, box, min, max === min ? min + 1 : max);
-  if (opts.fill !== undefined) {
+  if (opts.fill !== undefined && !isOutline()) {
     g.polygon([{ x: pts[0].x, y: bottom(box) }, ...pts, { x: pts[pts.length - 1].x, y: bottom(box) }], { fill: opts.fill });
   }
   const paint = { stroke: opts.gray ?? G.strong, width: opts.width ?? 1.5 };
@@ -141,12 +151,11 @@ export function barChart(
     const y = remap(v, min, max, bottom(plot), plot.y);
     const x = plot.x + i * (barWidth + gap);
     const h = Math.abs(y - zeroY);
-    const fill = i === opts.highlight ? (opts.highlightGray ?? G.max) : (opts.gray ?? G.secondary);
-    g.roundRect(
-      { x, y: Math.min(y, zeroY), width: barWidth, height: Math.max(1, h) },
-      opts.radius ?? Math.min(2, barWidth / 3),
-      { fill }
-    );
+    const bar = { x, y: Math.min(y, zeroY), width: barWidth, height: Math.max(1, h) };
+    const rad = opts.radius ?? Math.min(2, barWidth / 3);
+    const highlighted = i === opts.highlight;
+    if (isOutline() && !highlighted) g.roundRect(bar, rad, { stroke: opts.gray ?? G.border, width: 1 });
+    else g.roundRect(bar, rad, { fill: highlighted ? (opts.highlightGray ?? G.max) : (opts.gray ?? G.secondary) });
   });
   if (min < 0) g.hline(plot.x, right(plot), zeroY, G.border);
 }
@@ -165,7 +174,8 @@ export function rankChart(
     const y = box.y + i * (rowHeight + gap);
     g.text(row.label, box.x, y + rowHeight / 2, T.caption, G.secondary, "left", "middle");
     const track: Rect = { x: box.x + labelWidth, y: y + rowHeight / 2 - 3, width: box.width - labelWidth - 34, height: 6 };
-    g.roundRect(track, 3, { fill: G.sunken });
+    if (isOutline()) g.roundRect(track, 3, { stroke: G.hairline, width: 1 });
+    else g.roundRect(track, 3, { fill: G.sunken });
     g.roundRect({ ...track, width: Math.max(2, (track.width * clamp(row.value, 0, max)) / max) }, 3, { fill: row.gray ?? G.strong });
     g.text(opts.format ? opts.format(row.value) : String(row.value), right(box), y + rowHeight / 2, T.numeral, G.primary, "right", "middle");
   });
@@ -201,7 +211,7 @@ export function ringChart(
   const w = opts.width ?? 6;
   const start = opts.startAngle ?? -Math.PI / 2;
   const p = clamp(progress, 0, 1);
-  g.arc(cx, cy, radius, 0, Math.PI * 2, { stroke: opts.trackGray ?? G.sunken, width: w, cap: "butt" });
+  g.arc(cx, cy, radius, 0, Math.PI * 2, { stroke: opts.trackGray ?? (isOutline() ? G.hairline : G.sunken), width: isOutline() ? 1 : w, cap: "butt" });
   if (p > 0.001) {
     g.arc(cx, cy, radius, start, start + Math.PI * 2 * p, { stroke: opts.gray ?? G.max, width: w, cap: "round" });
   }
@@ -270,7 +280,8 @@ export function bulletChart(
   opts: { max?: number; gray?: Gray } = {}
 ): void {
   const max = opts.max ?? Math.max(value, target) * 1.15;
-  g.roundRect(box, box.height / 2, { fill: G.sunken });
+  if (isOutline()) g.roundRect(box, box.height / 2, { stroke: G.hairline, width: 1 });
+  else g.roundRect(box, box.height / 2, { fill: G.sunken });
   g.roundRect({ ...box, width: Math.max(2, (box.width * clamp(value, 0, max)) / max) }, box.height / 2, { fill: opts.gray ?? G.strong });
   const tx = box.x + (box.width * clamp(target, 0, max)) / max;
   g.vline(tx, box.y - 2, bottom(box) + 2, G.max, 2);

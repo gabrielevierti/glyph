@@ -48,7 +48,7 @@ export const navigatorScreen: Screen = {
     const [guidance, side] = row(main, [{ size: grow(1) }, { size: 150 }], { gap: S.md });
 
     // ── The maneuver ──────────────────────────────────────────────────────
-    panel(g, guidance, { fill: G.surface, radius: R.xl });
+    panel(g, guidance, { radius: R.xl });
     const arrowBox = inset({ x: guidance.x, y: guidance.y, width: 138, height: guidance.height }, S.sm);
     maneuverArrow(g, centerX(arrowBox), centerY(arrowBox) - 6, 96, step.kind);
 
@@ -73,16 +73,16 @@ export const navigatorScreen: Screen = {
     // ── Speed, limit, arrival ─────────────────────────────────────────────
     const [speedBox, limitBox, etaBox] = column(side, [{ size: grow(1) }, { size: grow(1) }, { size: 52 }], { gap: S.sm });
 
-    panel(g, speedBox, { fill: G.surface, radius: R.lg });
+    panel(g, speedBox, { radius: R.lg });
     g.text(String(speed), centerX(speedBox), centerY(speedBox) - 4, { ...T.numeralXl, size: 44 }, G.max, "center", "middle");
     g.text("KM/H", centerX(speedBox), bottom(speedBox) - 12, T.micro, G.tertiary, "center", "middle");
 
-    panel(g, limitBox, { fill: G.surface, radius: R.lg });
+    panel(g, limitBox, { radius: R.lg });
     speedLimit(g, centerX(limitBox), centerY(limitBox) - 7, 23, limit, speed > limit + 2);
     g.text(speed > limit + 2 ? "OVER LIMIT" : "LIMIT", centerX(limitBox), bottom(limitBox) - 9, { ...T.micro, size: 8 },
       speed > limit + 2 ? G.max : G.tertiary, "center", "middle");
 
-    panel(g, etaBox, { fill: G.raised, radius: R.lg });
+    panel(g, etaBox, { radius: R.lg, stroke: G.strong });
     g.text("15:47", centerX(etaBox), etaBox.y + 18, T.numeralLg, G.max, "center", "middle");
     g.text("ARRIVAL · 24 MIN", centerX(etaBox), bottom(etaBox) - 13, T.micro, G.tertiary, "center", "middle");
 

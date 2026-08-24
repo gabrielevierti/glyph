@@ -1,0 +1,34 @@
+<!doctype html>
+<html><head><meta charset="utf-8"></head><body>
+<script type="module">
+import { GlyphFrame, screen as SCREEN, safe as SAFE, setSurfaceStyle } from "/src/glyph/index.ts";
+import { screens } from "/src/apps/index.ts";
+
+/**
+ * Ink coverage: on a see-through display this is literally the fraction of the
+ * world the UI is hiding. Level 0 is transparent and costs nothing, so the
+ * useful number is mean level over the surface, not "pixels drawn".
+ */
+const CLOCKS = [4200, 4200, 5000, 3000, 3000, 2000];
+
+const measure = (style) => {
+  setSurfaceStyle(style);
+  return screens.map((screen, i) => {
+    const frame = new GlyphFrame({ supersample: 3 });
+    frame.raster.clear(0);
+    screen.render({
+      g: frame.raster, now: CLOCKS[i] ?? 3000,
+      screen: { x: 0, y: 0, ...SCREEN }, safe: SAFE,
+      app: { screens, screenIndex: i }
+    });
+    const pixels = frame.toLevels();
+    let sum = 0, lit = 0;
+    for (let j = 0; j < pixels.length; j++) { sum += pixels[j]; if (pixels[j] > 0) lit++; }
+    return { name: screen.name, ink: sum / (pixels.length * 15), lit: lit / pixels.length };
+  });
+};
+
+window.__ink = { filled: measure("filled"), outline: measure("outline") };
+setSurfaceStyle("outline");
+window.__done = true;
+</script></body></html>

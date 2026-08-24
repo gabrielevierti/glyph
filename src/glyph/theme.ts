@@ -56,5 +56,28 @@ export const screen = { width: 576, height: 288 };
  */
 export const safe = { x: 14, y: 12, width: 548, height: 264 };
 
+/**
+ * How surfaces are drawn.
+ *
+ * The G2 is see-through: every lit pixel is a pixel of the world you cannot
+ * see through. A filled card that would read as "elevated" on a phone reads as
+ * "smudge on the lens" on a waveguide, so `outline` is the default — panels are
+ * defined by a hairline border and the content inside them, with fills reserved
+ * for small elements that genuinely need to pop.
+ *
+ * `filled` is kept for the browser preview and for screenshots, where a solid
+ * surface photographs better and nothing is being occluded.
+ */
+export type SurfaceStyle = "outline" | "filled";
+
+let surfaceStyle: SurfaceStyle = "outline";
+
+export function setSurfaceStyle(style: SurfaceStyle): void { surfaceStyle = style; }
+export function getSurfaceStyle(): SurfaceStyle { return surfaceStyle; }
+export function isOutline(): boolean { return surfaceStyle === "outline"; }
+
+/** Ink budget: roughly what fraction of the surface a screen should light up. */
+export const inkBudget = 0.18;
+
 export const theme = { gray, type, space, radius, screen, safe };
 export type Theme = typeof theme;

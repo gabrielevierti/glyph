@@ -14,8 +14,8 @@ import type { RenderContext, Screen } from "../glyph/index.js";
  */
 
 const notifications = [
-  { icon: "message" as const, title: "Mark", subtitle: "i'm coming, 10 min!", value: "now" },
-  { icon: "calendar" as const, title: "Meeting", subtitle: "Piazza Duomo · briefing", value: "16:00" },
+  { icon: "message" as const, title: "Giada", subtitle: "sto arrivando, 10 min", value: "now" },
+  { icon: "calendar" as const, title: "Turno scorte", subtitle: "Piazza Duomo · briefing", value: "16:00" },
   { icon: "mail" as const, title: "Even Realities", subtitle: "Re: Glyph framework", value: "12:04" },
   { icon: "bell" as const, title: "Bucato", subtitle: "ciclo terminato", value: "11:30" },
   { icon: "phone" as const, title: "Chiamata persa", subtitle: "+39 02 ···· 41", value: "10:58" }
@@ -44,14 +44,14 @@ export const dashboardScreen: Screen = {
       column(leftCol, [{ size: grow(1) }, { size: 44 }, { size: 46 }], { gap: S.sm });
 
     // ── Clock ─────────────────────────────────────────────────────────────
-    panel(g, clockBox, { fill: G.surface, radius: R.xl, texture: true });
+    panel(g, clockBox, { radius: R.xl, texture: true });
     g.text("14:32", clockBox.x + 18, centerY(clockBox) - 6, { ...T.hero, size: 62 }, G.max, "left", "middle");
     const timeWidth = g.measure("14:32", { ...T.hero, size: 62 });
     g.text(String(seconds).padStart(2, "0"), clockBox.x + 22 + timeWidth, centerY(clockBox) - 16, T.numeral, G.tertiary, "left", "middle");
     g.text("LUNEDÌ 24 AGOSTO", clockBox.x + 20, bottom(clockBox) - 14, T.label, G.secondary, "left", "middle");
 
     // ── Weather: one line, because that is all it deserves here ───────────
-    panel(g, weatherBox, { fill: G.surface, radius: R.lg });
+    panel(g, weatherBox, { radius: R.lg });
     icon(g, "sun", weatherBox.x + 22, centerY(weatherBox), 22, G.max);
     g.text("29°", weatherBox.x + 40, centerY(weatherBox), T.numeralLg, G.max, "left", "middle");
     g.text("Sereno", weatherBox.x + 84, centerY(weatherBox), T.caption, G.tertiary, "left", "middle");
@@ -60,7 +60,7 @@ export const dashboardScreen: Screen = {
       [24, 25, 27, 29, 31, 30, 28, 26, 24], { gray: G.border, smooth: true, dot: false });
 
     // ── Activity: three rings, each with its own readout ──────────────────
-    panel(g, activityBox, { fill: G.surface, radius: R.lg });
+    panel(g, activityBox, { radius: R.lg });
     const goals: Array<[string, string, number]> = [["PASSI", "8 420", 0.68], ["KCAL", "612", 0.44], ["PIANI", "14", 0.9]];
     const cells = row(inset(activityBox, S.sm), goals.map(() => ({ size: grow(1) })), { gap: S.xs });
     goals.forEach(([goalLabel, value, progress], i) => {

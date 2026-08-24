@@ -1,4 +1,7 @@
-import { GlyphApp, TILE_LAYOUTS, grayToRgba, screen as SCREEN, type TileLayoutName } from "./glyph/index.js";
+import {
+  GlyphApp, TILE_LAYOUTS, grayToRgba, screen as SCREEN, setSurfaceStyle,
+  type SurfaceStyle, type TileLayoutName
+} from "./glyph/index.js";
 import { GlyphRuntime } from "./glyph/runtime.js";
 import { screens } from "./apps/index.js";
 
@@ -36,6 +39,12 @@ root.innerHTML = `
             <option value="3">3×</option>
           </select>
         </label>
+        <label>Surface
+          <select id="surface">
+            <option value="outline" selected>outline</option>
+            <option value="filled">filled</option>
+          </select>
+        </label>
         <label class="check"><input type="checkbox" id="gridToggle"> Pixel grid</label>
       </div>
       <div class="group stats">
@@ -53,6 +62,7 @@ const nameLabel = document.querySelector<HTMLSpanElement>("#screen-name")!;
 const layoutSelect = document.querySelector<HTMLSelectElement>("#layout")!;
 const zoomSelect = document.querySelector<HTMLSelectElement>("#zoom")!;
 const gridToggle = document.querySelector<HTMLInputElement>("#gridToggle")!;
+const surfaceSelect = document.querySelector<HTMLSelectElement>("#surface")!;
 const connLabel = document.querySelector<HTMLSpanElement>("#conn")!;
 const statsLabel = document.querySelector<HTMLSpanElement>("#stats")!;
 
@@ -118,6 +128,12 @@ function drawGrid() {
     octx.strokeRect(tile.x * zoom + 0.5, tile.y * zoom + 0.5, layout.width * zoom, layout.height * zoom);
   }
 }
+
+surfaceSelect.addEventListener("change", () => {
+  setSurfaceStyle(surfaceSelect.value as SurfaceStyle);
+  runtime?.invalidate();
+  app.invalidate();
+});
 
 zoomSelect.addEventListener("change", applyZoom);
 gridToggle.addEventListener("change", drawGrid);

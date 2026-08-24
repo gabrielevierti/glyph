@@ -91,7 +91,7 @@ export const seaStateScreen: Screen = {
     g.hline(footer.x, right(footer), footer.y, G.hairline);
     const cy = footer.y + 13;
     let x = footer.x;
-    x += pill(g, x, cy, "PORTOFINO", { icon: "map-pin", fill: G.raised }) + S.sm;
+    x += pill(g, x, cy, "PORTOFINO", { icon: "map-pin" }) + S.sm;
     g.text("14.2 NM", x + 4, cy, T.numeral, G.primary, "left", "middle");
     g.text("ETA 15:47", right(footer), cy, T.numeral, G.secondary, "right", "middle");
     pageDots(g, centerX(footer), cy, app.screens.length, app.screenIndex);

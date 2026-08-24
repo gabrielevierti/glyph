@@ -1,7 +1,7 @@
 import { icon } from "./icons.js";
 import { fitStyle, truncate } from "./text.js";
 import { bearingToAngle, bottom, centerX, centerY, clamp, inset, polar, right } from "./geometry.js";
-import { gray as G, radius as R, space as S, type as T } from "./theme.js";
+import { gray as G, isOutline, radius as R, space as S, type as T } from "./theme.js";
 import type { GlyphIconName } from "./icons.js";
 import type { GlyphRaster } from "./raster.js";
 import type { Corners, Gray, HAlign, Rect, TextStyle } from "./types.js";
@@ -22,11 +22,16 @@ export interface PanelOptions {
 /** The base container. Everything else sits on one of these. */
 export function panel(g: GlyphRaster, r: Rect, opts: PanelOptions = {}): Rect {
   const rad = opts.radius ?? R.lg;
-  if (opts.fill !== undefined) g.roundRect(r, rad, { fill: opts.fill });
-  if (opts.texture) {
+  const outline = isOutline();
+  // In outline mode a panel is its border. In filled mode it is its fill.
+  const fill = opts.fill ?? (outline ? undefined : G.surface);
+  const stroke = opts.stroke ?? (outline ? G.border : undefined);
+
+  if (fill !== undefined) g.roundRect(r, rad, { fill });
+  if (opts.texture && !outline) {
     g.scoped((layer) => { layer.clipRound(r, rad); layer.dots(r, 5, G.sunken, 0.5); });
   }
-  if (opts.stroke !== undefined) g.roundRect(r, rad, { stroke: opts.stroke, width: opts.strokeWidth ?? 1 });
+  if (stroke !== undefined) g.roundRect(r, rad, { stroke, width: opts.strokeWidth ?? 1 });
   return inset(r, S.md);
 }
 
@@ -35,7 +40,7 @@ export function section(
   g: GlyphRaster, r: Rect, label: string,
   opts: PanelOptions & { accessory?: string; icon?: GlyphIconName } = {}
 ): Rect {
-  panel(g, r, { fill: opts.fill ?? G.surface, stroke: opts.stroke, radius: opts.radius ?? R.lg, texture: opts.texture });
+  panel(g, r, { fill: opts.fill, stroke: opts.stroke, radius: opts.radius ?? R.lg, texture: opts.texture });
   const headerY = r.y + 13;
   let x = r.x + S.md;
   if (opts.icon) { icon(g, opts.icon, x + 5, headerY, 12, G.tertiary); x += 17; }
@@ -154,7 +159,15 @@ export interface ListRowOptions {
 
 /** One row of a list. Selection is a filled well, not a colour change. */
 export function listRow(g: GlyphRaster, r: Rect, opts: ListRowOptions): void {
-  if (opts.selected) g.roundRect(r, R.md, { fill: G.raised });
+  if (opts.selected) {
+    if (isOutline()) {
+      // A bright edge marker costs a few dozen pixels; a filled row costs the view.
+      g.roundRect({ x: r.x, y: r.y + 2, width: 2.5, height: r.height - 4 }, 1.5, { fill: G.max });
+      g.roundRect(r, R.md, { stroke: G.hairline, width: 1 });
+    } else {
+      g.roundRect(r, R.md, { fill: G.raised });
+    }
+  }
   const cy = centerY(r);
   let x = r.x + S.md;
 
@@ -192,7 +205,9 @@ export function progressBar(
 ): void {
   const v = clamp(value, 0, 1);
   const rad = opts.radius ?? r.height / 2;
-  g.roundRect(r, rad, { fill: opts.track ?? G.sunken });
+  if (opts.track !== undefined) g.roundRect(r, rad, { fill: opts.track });
+  else if (isOutline()) g.roundRect(r, rad, { stroke: G.hairline, width: 1 });
+  else g.roundRect(r, rad, { fill: G.sunken });
   if (opts.ticks) {
     for (let i = 1; i < opts.ticks; i++) g.vline(r.x + (r.width * i) / opts.ticks, r.y, bottom(r), G.off);
   }
@@ -207,11 +222,11 @@ export function segmentedBar(
   const gap = opts.gap ?? 3;
   const w = (r.width - gap * (segments - 1)) / segments;
   for (let i = 0; i < segments; i++) {
-    g.roundRect(
-      { x: r.x + i * (w + gap), y: r.y, width: w, height: r.height },
-      Math.min(2, r.height / 2),
-      { fill: i < filled ? (opts.fill ?? G.max) : (opts.track ?? G.sunken) }
-    );
+    const cell = { x: r.x + i * (w + gap), y: r.y, width: w, height: r.height };
+    const rad = Math.min(2, r.height / 2);
+    if (i < filled) g.roundRect(cell, rad, { fill: opts.fill ?? G.max });
+    else if (isOutline() && opts.track === undefined) g.roundRect(cell, rad, { stroke: G.hairline, width: 1 });
+    else g.roundRect(cell, rad, { fill: opts.track ?? G.sunken });
   }
 }
 
@@ -271,7 +286,7 @@ export function tabBar(g: GlyphRaster, r: Rect, tabs: string[], active: number):
 /** Vertical scroll indicator for lists that overflow. */
 export function scrollbar(g: GlyphRaster, r: Rect, offset: number, visible: number, total: number): void {
   if (total <= visible) return;
-  g.roundRect(r, r.width / 2, { fill: G.sunken });
+  if (!isOutline()) g.roundRect(r, r.width / 2, { fill: G.sunken });
   const h = Math.max(10, (visible / total) * r.height);
   const y = r.y + (offset / total) * r.height;
   g.roundRect({ x: r.x, y: Math.min(y, bottom(r) - h), width: r.width, height: h }, r.width / 2, { fill: G.border });
@@ -290,7 +305,10 @@ export function pill(
   const h = opts.height ?? 17;
   const iconW = opts.icon ? 14 : 0;
   const w = g.measure(text, style) + 16 + iconW;
-  g.roundRect({ x, y: y - h / 2, width: w, height: h }, h / 2, { fill: opts.fill ?? G.raised });
+  const box = { x, y: y - h / 2, width: w, height: h };
+  if (opts.fill !== undefined) g.roundRect(box, h / 2, { fill: opts.fill });
+  else if (isOutline()) g.roundRect(box, h / 2, { stroke: G.border, width: 1 });
+  else g.roundRect(box, h / 2, { fill: G.raised });
   if (opts.icon) icon(g, opts.icon, x + 12, y, 11, opts.gray ?? G.secondary);
   g.text(text, x + 8 + iconW, y, style, opts.gray ?? G.primary, "left", "middle");
   return w;
@@ -317,9 +335,11 @@ export function button(
   g: GlyphRaster, r: Rect, text: string,
   opts: { icon?: GlyphIconName; primary?: boolean; focused?: boolean } = {}
 ): void {
-  const fill = opts.primary ? G.max : G.raised;
-  const fg = opts.primary ? G.off : G.primary;
-  g.roundRect(r, R.md, { fill });
+  const outline = isOutline();
+  const fill = outline ? undefined : opts.primary ? G.max : G.raised;
+  const fg = outline ? (opts.primary ? G.max : G.secondary) : opts.primary ? G.off : G.primary;
+  if (fill !== undefined) g.roundRect(r, R.md, { fill });
+  if (outline) g.roundRect(r, R.md, { stroke: opts.primary ? G.max : G.border, width: opts.primary ? 1.5 : 1 });
   if (opts.focused) g.roundRect(inset(r, -2.5), R.md + 2, { stroke: G.max, width: 1.5 });
   const iconW = opts.icon ? 18 : 0;
   const textW = g.measure(text, T.bodyStrong);
@@ -330,14 +350,19 @@ export function button(
 
 export function toggle(g: GlyphRaster, x: number, y: number, on: boolean, width = 32): void {
   const h = width * 0.56;
-  g.roundRect({ x, y: y - h / 2, width, height: h }, h / 2, { fill: on ? G.max : G.border });
-  g.circle(on ? x + width - h / 2 : x + h / 2, y, h / 2 - 2.5, { fill: on ? G.off : G.surface });
+  if (isOutline()) {
+    g.roundRect({ x, y: y - h / 2, width, height: h }, h / 2, { stroke: on ? G.max : G.border, width: 1 });
+    g.circle(on ? x + width - h / 2 : x + h / 2, y, h / 2 - 3, { fill: on ? G.max : G.disabled });
+  } else {
+    g.roundRect({ x, y: y - h / 2, width, height: h }, h / 2, { fill: on ? G.max : G.border });
+    g.circle(on ? x + width - h / 2 : x + h / 2, y, h / 2 - 2.5, { fill: on ? G.off : G.surface });
+  }
 }
 
 /** Transient message strip. */
 export function toast(g: GlyphRaster, r: Rect, text: string, opts: { icon?: GlyphIconName; alpha?: number } = {}): void {
   g.scoped((layer) => {
-    layer.roundRect(r, R.pill, { fill: G.raised, alpha: opts.alpha ?? 1 });
+    if (!isOutline()) layer.roundRect(r, R.pill, { fill: G.raised, alpha: opts.alpha ?? 1 });
     layer.roundRect(r, R.pill, { stroke: G.border, width: 1, alpha: opts.alpha ?? 1 });
     let x = r.x + 16;
     if (opts.icon) { icon(layer, opts.icon, x + 7, centerY(r), 14, G.max); x += 24; }
@@ -422,11 +447,11 @@ export function attitudeIndicator(
   // bleed into the surrounding layout.
   g.scoped((layer) => {
     layer.clipCircle(cx, cy, radius);
-    layer.rect({ x: cx - radius, y: cy - radius, width: radius * 2, height: radius * 2 }, { fill: G.off });
     layer.rotateAbout(cx, cy, (-roll * Math.PI) / 180);
     const horizonY = cy + pitch * 2;
-    layer.rect({ x: cx - radius * 2, y: horizonY, width: radius * 4, height: radius * 2 }, { fill: G.sunken });
-    layer.hatch({ x: cx - radius * 2, y: horizonY, width: radius * 4, height: radius * 2 }, 5, G.hairline);
+    const ground = { x: cx - radius * 2, y: horizonY, width: radius * 4, height: radius * 2 };
+    if (!isOutline()) layer.rect(ground, { fill: G.sunken });
+    layer.hatch(ground, 5, isOutline() ? G.hairline : G.border);
     layer.hline(cx - radius * 1.4, cx + radius * 1.4, horizonY, G.max, 1.5);
     for (const step of [-20, -10, 10, 20]) {
       const y = horizonY - step * 2;
@@ -463,8 +488,12 @@ export function windIndicator(
 /** Speed roundel — the European sign, which reads instantly. */
 export function speedLimit(g: GlyphRaster, cx: number, cy: number, radius: number, limit: number, over = false): void {
   if (over) g.circle(cx, cy, radius + 4, { stroke: G.strong, width: 1.5, dash: [3, 4] });
-  g.circle(cx, cy, radius, { fill: G.max });
-  g.circle(cx, cy, radius - 3.5, { fill: G.off });
+  if (isOutline()) {
+    g.circle(cx, cy, radius - 1.75, { stroke: G.max, width: 3.5 });
+  } else {
+    g.circle(cx, cy, radius, { fill: G.max });
+    g.circle(cx, cy, radius - 3.5, { fill: G.off });
+  }
   g.text(String(limit), cx, cy + 1, { ...T.numeralLg, size: radius * 1.05 }, G.max, "center", "middle");
 }
 
