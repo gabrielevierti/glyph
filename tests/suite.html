@@ -2,7 +2,7 @@
 import {
   GlyphFrame, GlyphApp, TILE_LAYOUTS, packGray4, unpackGray4, hashBytes,
   wrap, truncate, row, column, grow, screen as SCREEN, safe as SAFE, GlyphRaster,
-  setSurfaceStyle, inkBudget
+  setSurfaceStyle, inkBudget, validateLayout, MAX_IMAGE_CONTAINERS
 } from "/src/glyph/index.ts";
 import { screens } from "/src/apps/index.ts";
 
@@ -16,21 +16,29 @@ const ok = (name, pass, detail = "") => results.push({ name, pass, detail });
   ok("gray4 roundtrip", back.every((v, i) => v === src[i]));
 }
 
-// 2. Every shipped tile layout covers the surface exactly once.
+// 2. Every shipped layout is valid and fits the four-container hardware limit.
+//    The Even Hub simulator accepts twelve image containers; the glasses accept
+//    four. Trusting the simulator here is how you ship something that cannot run.
 for (const [name, layout] of Object.entries(TILE_LAYOUTS)) {
-  const cover = new Uint8Array(576 * 288);
-  for (const t of layout.tiles)
-    for (let y = 0; y < layout.height; y++)
-      for (let x = 0; x < layout.width; x++) cover[(t.y + y) * 576 + t.x + x]++;
-  ok(`layout ${name} tiles the surface`, cover.every((v) => v === 1),
-     `w=${layout.width} h=${layout.height} n=${layout.tiles.length}`);
-  ok(`layout ${name} even tile width`, layout.width % 2 === 0);
+  const problems = validateLayout(layout);
+  ok(`layout ${name} is valid`, problems.length === 0, problems.join("; "));
+  ok(`layout ${name} fits the container limit`, layout.tiles.length <= MAX_IMAGE_CONTAINERS,
+     `${layout.tiles.length} tiles`);
+}
+
+// 2b. A layout that exceeds the hardware limit is caught, not silently accepted.
+{
+  const tooMany = { name: "toomany", tiles: Array.from({ length: 9 }, (_, i) => ({
+    id: 10 + i, name: `t${i}`, x: (i % 3) * 192, y: Math.floor(i / 3) * 96, width: 192, height: 96, zOrder: i + 1
+  })) };
+  const problems = validateLayout(tooMany);
+  ok("over-limit layout rejected", problems.some((p) => p.includes("hardware limit")), problems[0] ?? "");
 }
 
 // 3. Identical renders produce identical tile hashes (diffing is sound).
 {
   const render = () => {
-    const f = new GlyphFrame({ tileLayout: TILE_LAYOUTS["192x96"] });
+    const f = new GlyphFrame({ tileLayout: TILE_LAYOUTS.quadrants });
     f.raster.clear(0);
     screens[2].render({ g: f.raster, now: 5000, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 2 } });
     return f.toFrame().tiles.map((t) => t.hash);
@@ -39,9 +47,9 @@ for (const [name, layout] of Object.entries(TILE_LAYOUTS)) {
   ok("identical renders hash identically", a.every((h, i) => h === b[i]));
 }
 
-// 4. A clock ticking one second dirties only a few tiles, not all nine.
+// 4. A clock ticking one second dirties only some of the four tiles.
 {
-  const f = new GlyphFrame({ tileLayout: TILE_LAYOUTS["192x96"] });
+  const f = new GlyphFrame({ tileLayout: TILE_LAYOUTS.quadrants });
   const paint = (now) => {
     f.raster.clear(0);
     screens[2].render({ g: f.raster, now, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 2 } });
@@ -50,23 +58,26 @@ for (const [name, layout] of Object.entries(TILE_LAYOUTS)) {
   const t0 = paint(5000);
   const t1 = paint(6000);
   const changed = t0.filter((h, i) => h !== t1[i]).length;
-  ok("one second dirties few tiles", changed <= 3, `${changed}/9 tiles changed`);
+  ok("one second dirties few tiles", changed <= 2, `${changed}/4 tiles changed`);
 }
 
-// 5. A tile falling outside the surface is rejected rather than corrupting memory.
+// 5. Bad layouts are rejected at construction rather than corrupting rows.
 {
-  let threw = false;
-  try {
-    new GlyphFrame({ tileLayout: { width: 288, height: 144, tiles: [{ id: 1, name: "x", x: 400, y: 200, zOrder: 1 }] } });
-  } catch { threw = true; }
-  ok("out-of-bounds tile rejected", threw);
-}
-{
-  let threw = false;
-  try {
-    new GlyphFrame({ tileLayout: { width: 191, height: 96, tiles: [{ id: 1, name: "x", x: 0, y: 0, zOrder: 1 }] } });
-  } catch { threw = true; }
-  ok("odd tile width rejected", threw);
+  const bad = (tiles) => {
+    try { new GlyphFrame({ tileLayout: { name: "bad", tiles } }); return false; }
+    catch { return true; }
+  };
+  ok("out-of-bounds tile rejected",
+     bad([{ id: 1, name: "x", x: 400, y: 200, width: 288, height: 144, zOrder: 1 }]));
+  ok("odd tile width rejected",
+     bad([{ id: 1, name: "x", x: 0, y: 0, width: 191, height: 288, zOrder: 1 }]));
+  ok("gappy layout rejected",
+     bad([{ id: 1, name: "x", x: 0, y: 0, width: 288, height: 144, zOrder: 1 }]));
+  ok("overlapping layout rejected",
+     bad([
+       { id: 1, name: "a", x: 0, y: 0, width: 576, height: 288, zOrder: 1 },
+       { id: 2, name: "b", x: 0, y: 0, width: 288, height: 144, zOrder: 2 }
+     ]));
 }
 
 // 6. Text wrapping respects the box and truncation actually shortens.

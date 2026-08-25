@@ -29,7 +29,7 @@ root.innerHTML = `
       <div class="group">
         <label>Tiles
           <select id="layout">
-            ${Object.keys(TILE_LAYOUTS).map((k) => `<option value="${k}"${k === "192x96" ? " selected" : ""}>${k}</option>`).join("")}
+            ${Object.entries(TILE_LAYOUTS).map(([k, v]) => `<option value="${k}" title="${v.note ?? ""}"${k === "quadrants" ? " selected" : ""}>${k}</option>`).join("")}
           </select>
         </label>
         <label>Zoom
@@ -89,7 +89,7 @@ function createApp(): GlyphApp {
       ctx.putImageData(imageData, 0, 0);
       nameLabel.textContent = a.screen.name;
       statsLabel.textContent =
-        `${a.fps.toFixed(0)} fps · ${runtime?.isConnected ? `${runtime.lastTilesSent}/${currentLayout().tiles.length} tiles sent` : `${currentLayout().tiles.length} tiles`}`;
+        `${a.fps.toFixed(0)} fps · ${a.lastDirtyTiles}/${currentLayout().tiles.length} tiles dirty`;
     }
   });
   instance.start();
@@ -122,10 +122,9 @@ function drawGrid() {
     octx.beginPath(); octx.moveTo(0, y * zoom + 0.5); octx.lineTo(overlay.width, y * zoom + 0.5); octx.stroke();
   }
   // Tile boundaries, so you can see what the transport actually sends.
-  const layout = currentLayout();
-  octx.strokeStyle = "rgba(255,180,120,0.4)";
-  for (const tile of layout.tiles) {
-    octx.strokeRect(tile.x * zoom + 0.5, tile.y * zoom + 0.5, layout.width * zoom, layout.height * zoom);
+  octx.strokeStyle = "rgba(255,180,120,0.45)";
+  for (const tile of currentLayout().tiles) {
+    octx.strokeRect(tile.x * zoom + 0.5, tile.y * zoom + 0.5, tile.width * zoom, tile.height * zoom);
   }
 }
 

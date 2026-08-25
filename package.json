@@ -14,7 +14,8 @@
     "ink": "node tests/ink.mjs",
     "snapshot": "node tests/snapshot.mjs",
     "sim": "evenhub-simulator http://localhost:5173",
-    "pack": "npm run build && evenhub pack"
+    "pack": "npm run build && evenhub pack",
+    "tiles": "node tests/tiles.mjs"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "0.0.13"

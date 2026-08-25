@@ -1,4 +1,4 @@
-import { GlyphFrame, TILE_288x144 } from "./frame.js";
+import { GlyphFrame, TILE_QUADRANTS } from "./frame.js";
 import { GlyphRaster } from "./raster.js";
 import { Tween, ease } from "./animate.js";
 import { clamp } from "./geometry.js";
@@ -73,6 +73,14 @@ export class GlyphApp {
   /** Painted frames per second, averaged. Shown in the dev preview. */
   fps = 0;
 
+  /**
+   * How many tiles changed on the last paint. Tracked whether or not glasses
+   * are attached, so you can see the transport cost of a design decision while
+   * you are still making it.
+   */
+  lastDirtyTiles = 0;
+  private tileHashes = new Map<number, number>();
+
   constructor(options: GlyphAppOptions) {
     if (options.screens.length === 0) throw new Error("Glyph: an app needs at least one screen.");
     this.screens = options.screens;
@@ -80,7 +88,7 @@ export class GlyphApp {
       width: SCREEN.width,
       height: SCREEN.height,
       supersample: options.supersample ?? 2,
-      tileLayout: options.tileLayout ?? TILE_288x144,
+      tileLayout: options.tileLayout ?? TILE_QUADRANTS,
       createCanvas: options.createCanvas
     });
     this.interval = 1000 / (options.fps ?? 20);
@@ -158,9 +166,19 @@ export class GlyphApp {
     }
 
     const levels = this.frame.toLevels();
+    const frame = this.frame.toFrame(levels);
+
+    this.lastDirtyTiles = 0;
+    for (const tile of frame.tiles) {
+      if (this.tileHashes.get(tile.id) !== tile.hash) {
+        this.lastDirtyTiles++;
+        this.tileHashes.set(tile.id, tile.hash);
+      }
+    }
+
     this.onPaint?.(levels, this);
     if (this.runtime?.isConnected) {
-      void this.runtime.render(this.frame.toFrame(levels)).catch(() => undefined);
+      void this.runtime.render(frame).catch(() => undefined);
     }
     return levels;
   }

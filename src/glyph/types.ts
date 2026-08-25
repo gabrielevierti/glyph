@@ -71,13 +71,16 @@ export interface TileSlot {
   name: string;
   x: number;
   y: number;
+  /** Tile width. Must be even — Gray4 packs two pixels per byte. */
+  width: number;
+  height: number;
   zOrder: number;
 }
 
 export interface TileLayout {
-  /** Tile dimensions. Width must be even (Gray4 packs two pixels per byte). */
-  width: number;
-  height: number;
+  name: string;
+  /** What this shape is good at, shown in the dev preview. */
+  note?: string;
   tiles: TileSlot[];
 }
 

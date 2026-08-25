@@ -160,32 +160,48 @@ The paint loop does nothing when nothing changed. Screen changes slide via offsc
 
 ## Tile layouts
 
-The G2's per-container size ceiling varies by firmware, so the same surface ships in four tilings:
+**The G2 accepts four image containers per page.** This is a hardware limit. The Even Hub simulator will happily accept twelve, which means a layout can pass every test you run locally and fail on the glasses — worth knowing before you design around it.
 
-| Layout | Tile | Tiles | Notes |
-|---|---|---|---|
-| `TILE_288x144` | 288×144 | 4 | Matches the official SDK reference. Fewest transfers. |
-| `TILE_192x144` | 192×144 | 6 | |
-| `TILE_192x96` | 192×96 | 9 | Preview default. Safest on current firmware, finest diff granularity. |
-| `TILE_144x144` | 144×144 | 8 | |
+Four containers always cover 165,888 pixels between them, so you cannot buy diffing granularity by making tiles smaller. What you *can* choose is their **shape**, and shape decides how much of the screen a given change drags along with it. Tiles do not have to be the same size.
 
-All four are asserted to cover 576×288 exactly once. Out-of-bounds tiles and odd tile widths throw at construction rather than silently corrupting rows.
+| Layout | Shape | Good for |
+|---|---|---|
+| `TILE_QUADRANTS` | 288×144 ×4 | The SDK reference layout. Sane default. |
+| `TILE_BANDS` | 576×72 ×4 | Screens that change in horizontal strips. |
+| `TILE_COLUMNS` | 144×288 ×4 | Side-by-side panels updating independently. |
+| `TILE_CHROME` | 576×32 strip + 192×256 ×3 | Isolates rarely-changing chrome from content. |
+| `TILE_HERO` | 426×288 + 150×96 ×3 | One dominant panel plus a rail. |
 
-If `createStartUpPageContainer` fails, try a smaller layout first — that is almost always the cause.
+`npm run tiles` measures the real cost — Gray4 KB sent per second of animation, per screen, per shape:
+
+```
+screen         quadrants      bands    columns     chrome       hero
+SeaState            810        628        648        528*       740
+Navigator           263        284        243*       309        282
+Dashboard            20*        41         20*        24         60
+Charts              405*       608        405*       480        796
+```
+
+Up to 35% between the best and worst shape for the same screen. The rule that falls out: **put the seams between the regions that change at different rates.** SeaState wins with `chrome` because its status bar and footer are static while three panels animate; Dashboard is cheap in every layout because only the clock moves.
+
+`validateLayout()` checks coverage, overlap, bounds, even widths and the container cap, and both `GlyphFrame` and `GlyphRuntime` throw on an invalid layout rather than corrupting rows or failing opaquely on device.
 
 ## Transport and dirty tiles
 
 Each tile is packed to Gray4 (two pixels per byte, high nibble first) and hashed with FNV-1a. `GlyphRuntime` compares against the previous frame and sends only tiles that changed.
 
-Measured on the ticking Dashboard: **one tile of nine per second.** Identical renders provably hash identically, which is what makes the optimization safe. `runtime.invalidate()` forces a full repaint; `disableDiffing: true` turns it off.
+Measured on the ticking Dashboard: **one tile of four per second.** Identical renders provably hash identically, which is what makes the optimization safe. `runtime.invalidate()` forces a full repaint; `disableDiffing: true` turns it off.
+
+The preview shows the live dirty-tile count as you design, with or without glasses attached.
 
 Tiles go over the wire as PNG, because that is what the image containers accept today. The Gray4 packing is not wasted work — it is the diffing key and the wire format the moment raw uploads are exposed. `GlyphRuntime.encodeTile` is the single place that would change.
 
 ## Testing
 
 ```bash
-npm test           # 35 assertions, rendered in real Chromium
+npm test           # 40 assertions, rendered in real Chromium
 npm run ink        # occlusion report, filled vs outline, per screen
+npm run tiles      # transport cost per tile shape, per screen
 npm run snapshot   # re-render img/screens/*.png and img/splash.png
 ```
 
@@ -212,7 +228,8 @@ npm run pack     # .ehpk for the Even Hub developer portal
 - **`runtime.ts` is the one file never executed in CI** — it needs the SDK and real hardware. Test it first on device.
 - **`statusBar` assumes a 576-wide surface.** It is chrome, not a component.
 - **No headless rendering outside a browser.** `GlyphRaster` takes an injected `createCanvas`, so a node-canvas backend is a small change, but it is not written.
-- **Dirty tracking is per tile, not per region.** A one-pixel change repaints its whole tile.
+- **Dirty tracking is per tile, not per region.** With only four containers, a one-pixel change repaints at least a quarter of the screen.
+- **The layout is fixed at page creation**, so a screen cannot pick its own tile shape without tearing down and rebuilding the page. Choose the shape that suits the screens you switch between most.
 - **Ink is measured, not enforced at draw time.** Nothing stops a screen flooding the surface; the budget is a test, not a runtime guard.
 
 ## Roadmap
@@ -229,7 +246,8 @@ npm run pack     # .ehpk for the Even Hub developer portal
 
 **0.5 — transport**
 - [ ] raw Gray4 upload when the SDK exposes it
-- [ ] sub-tile dirty regions
+- [ ] per-screen layout switching (tear down and rebuild the page on transition)
+- [ ] automatic layout selection from a screen's measured change pattern
 
 ## License
 

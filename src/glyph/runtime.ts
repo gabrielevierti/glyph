@@ -3,7 +3,7 @@ import {
   StartUpPageCreateResult, waitForEvenAppBridge,
   type EvenAppBridge, type TextContainerProperty
 } from "@evenrealities/even_hub_sdk";
-import { TILE_288x144 } from "./frame.js";
+import { MAX_IMAGE_CONTAINERS, TILE_QUADRANTS, validateLayout } from "./frame.js";
 import { unpackGray4 } from "./gray.js";
 import type { Frame, TileLayout } from "./types.js";
 
@@ -63,9 +63,10 @@ export class GlyphRuntime {
   lastTilesSent = 0;
 
   constructor(options: GlyphRuntimeOptions = {}) {
-    this.tileLayout = options.tileLayout ?? TILE_288x144;
-    if (this.tileLayout.tiles.length === 0) {
-      throw new Error("Glyph: tileLayout must declare at least one tile.");
+    this.tileLayout = options.tileLayout ?? TILE_QUADRANTS;
+    const problems = validateLayout(this.tileLayout);
+    if (problems.length > 0) {
+      throw new Error(`Glyph: invalid tile layout "${this.tileLayout.name}":\n  ${problems.join("\n  ")}`);
     }
     this.debug = options.debug ?? false;
     this.timeoutMs = options.timeoutMs ?? 12000;
@@ -97,8 +98,8 @@ export class GlyphRuntime {
     const images = this.tileLayout.tiles.map((t) => ({
       xPosition: t.x,
       yPosition: t.y,
-      width: this.tileLayout.width,
-      height: this.tileLayout.height,
+      width: t.width,
+      height: t.height,
       containerID: t.id,
       containerName: t.name,
       zOrderIndex: t.zOrder
@@ -121,9 +122,12 @@ export class GlyphRuntime {
     );
 
     if (result !== StartUpPageCreateResult.success) {
+      // The event-capture text container counts toward the page total, so the
+      // usable image budget is MAX_IMAGE_CONTAINERS. The simulator does not
+      // enforce this; the glasses do.
       const message =
         `createStartUpPageContainer failed: ${StartUpPageCreateResult[result] ?? result}. ` +
-        `Try a smaller tile layout — this firmware may cap container size.`;
+        `Sent ${images.length} image containers (hardware limit is ${MAX_IMAGE_CONTAINERS}) plus one event layer.`;
       this.emit({ connected: false, message });
       throw new Error(message);
     }
