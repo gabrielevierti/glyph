@@ -160,7 +160,7 @@ The paint loop does nothing when nothing changed. Screen changes slide via offsc
 
 ## Tile layouts
 
-**The G2 accepts four image containers per page.** This is a hardware limit. The Even Hub simulator will happily accept twelve, which means a layout can pass every test you run locally and fail on the glasses — worth knowing before you design around it (btw thanks to @lousisx over on Discord for pointing this put to me!)
+**The G2 accepts four image containers per page.** This is a hardware limit. The Even Hub simulator will happily accept twelve, which means a layout can pass every test you run locally and fail on the glasses — worth knowing before you design around it (btw thanks to @lousisx over on Discord for pointing this out to me!)
 
 Four containers always cover 165,888 pixels between them, so you cannot buy diffing granularity by making tiles smaller. What you *can* choose is their **shape**, and shape decides how much of the screen a given change drags along with it. Tiles do not have to be the same size.
 
