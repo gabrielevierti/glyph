@@ -160,7 +160,7 @@ The paint loop does nothing when nothing changed. Screen changes slide via offsc
 
 ## Tile layouts
 
-**The G2 accepts four image containers per page.** This is a hardware limit. The Even Hub simulator will happily accept twelve, which means a layout can pass every test you run locally and fail on the glasses — worth knowing before you design around it.
+**The G2 accepts four image containers per page.** This is a hardware limit. The Even Hub simulator will happily accept twelve, which means a layout can pass every test you run locally and fail on the glasses — worth knowing before you design around it (btw thanks to @lousisx over on Discord for pointing this put to me!)
 
 Four containers always cover 165,888 pixels between them, so you cannot buy diffing granularity by making tiles smaller. What you *can* choose is their **shape**, and shape decides how much of the screen a given change drags along with it. Tiles do not have to be the same size.
 
@@ -231,23 +231,6 @@ npm run pack     # .ehpk for the Even Hub developer portal
 - **Dirty tracking is per tile, not per region.** With only four containers, a one-pixel change repaints at least a quarter of the screen.
 - **The layout is fixed at page creation**, so a screen cannot pick its own tile shape without tearing down and rebuilding the page. Choose the shape that suits the screens you switch between most.
 - **Ink is measured, not enforced at draw time.** Nothing stops a screen flooding the surface; the budget is a test, not a runtime guard.
-
-## Roadmap
-
-**0.3 — text and layout**
-- [ ] bitmap font pipeline, so rendering is host-independent
-- [ ] intrinsic sizing (`size: "auto"` measuring its own content)
-- [ ] scroll containers with clipping built in
-
-**0.4 — tooling**
-- [ ] framebuffer inspector with per-tile byte counts
-- [ ] frame capture and GIF recording from the preview
-- [ ] pixel-diff assertions against committed snapshots
-
-**0.5 — transport**
-- [ ] raw Gray4 upload when the SDK exposes it
-- [ ] per-screen layout switching (tear down and rebuild the page on transition)
-- [ ] automatic layout selection from a screen's measured change pattern
 
 ## License
 
