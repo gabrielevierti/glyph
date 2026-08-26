@@ -1,7 +1,3 @@
-# Glyph
-
-A graphics and UI framework for the **Even Realities G2**.
-
 Glyph exists so that G2 apps can look like designed interfaces instead of collections of text containers and hand-placed polygons. You draw a complete screen into a 576×288 framebuffer using real primitives — paths, gradients, clipping, transforms, measured text — and Glyph slices it into image tiles and ships only the ones that changed.
 
 ![Six screens built with Glyph](img/splash.png)
@@ -335,22 +331,6 @@ npm run pack     # .ehpk for the Even Hub developer portal
 - **Ink and contrast are measured, not enforced at draw time.** Nothing stops a screen flooding the surface; the budget is a test, not a runtime guard.
 - **The contrast lint samples, it does not integrate.** It checks the backdrop at the glyph's anchor, not under every stroke, so it catches flat-on-flat clashes reliably and text over fine texture only sometimes.
 
-<<<<<<< HEAD
-## Roadmap
-
-**0.4 — headless and tooling**
-- [ ] node-canvas backend, so `npm test` needs no Chromium
-- [ ] framebuffer inspector with per-tile byte counts
-- [ ] frame capture and GIF recording from the preview
-- [ ] pixel-diff assertions against committed snapshots
-
-**0.5 — transport**
-- [ ] raw Gray4 upload when the SDK exposes it
-- [ ] per-screen layout switching (tear down and rebuild the page on transition)
-- [ ] feed the layout search from live device traces rather than replayed timestamps
-
-=======
->>>>>>> 6495e56c7e9fa0cc4c3794b40a0f283791821666
 ## License
 
 MIT
