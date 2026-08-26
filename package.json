@@ -1,31 +1,58 @@
 {
   "name": "@gabrielevierti/glyph",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A graphics and UI framework for Even Realities G2 smart glasses.",
   "type": "module",
   "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/gabrielevierti/glyph.git" },
+  "keywords": ["even-realities", "g2", "smart-glasses", "graphics", "ui", "framebuffer", "gray4"],
+  "sideEffects": false,
+  "types": "./lib/types/index.d.ts",
+  "module": "./lib/glyph.js",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "import": "./lib/glyph.js"
+    },
+    "./runtime": {
+      "types": "./lib/types/runtime.d.ts",
+      "import": "./lib/runtime.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib", "src/glyph", "README.md", "LICENSE"],
   "scripts": {
     "dev": "vite",
     "host": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "build": "npm run build:lib && npm run build:app",
+    "build:lib": "tsc -p tsconfig.build.json && vite build --config vite.lib.config.ts",
     "typecheck": "tsc --noEmit",
+    "build:app": "vite build",
     "preview": "vite preview",
     "test": "node tests/run.mjs",
     "ink": "node tests/ink.mjs",
     "snapshot": "node tests/snapshot.mjs",
+    "tiles": "node tests/tiles.mjs",
+    "font": "node tools/build-font.mjs",
+    "bench": "node tools/bench.mjs",
     "sim": "evenhub-simulator http://localhost:5173",
-    "pack": "npm run build && evenhub pack",
-    "tiles": "node tests/tiles.mjs"
+    "pack": "npm run build:app && evenhub pack",
+    "prepublishOnly": "npm run typecheck && npm run build:lib"
   },
-  "dependencies": {
-    "@evenrealities/even_hub_sdk": "0.0.13"
+  "peerDependencies": {
+    "@evenrealities/even_hub_sdk": ">=0.0.13"
+  },
+  "peerDependenciesMeta": {
+    "@evenrealities/even_hub_sdk": { "optional": true }
   },
   "devDependencies": {
+    "@evenrealities/even_hub_sdk": "0.0.13",
     "@evenrealities/evenhub-cli": "^0.1.11",
     "@evenrealities/evenhub-simulator": "^0.8.0",
     "@types/node": "^22.0.0",
+    "playwright": "^1.50.0",
     "typescript": "^5.8.3",
-    "vite": "^7.1.0",
-    "playwright": "^1.50.0"
-  }
+    "vite": "^7.1.0"
+  },
+  "engines": { "node": ">=20" }
 }

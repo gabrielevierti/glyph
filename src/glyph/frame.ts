@@ -1,6 +1,6 @@
 import { GlyphRaster } from "./raster.js";
 import { hashBytes, packGray4 } from "./gray.js";
-import type { Frame, RasterOptions, Tile, TileLayout, TileSlot } from "./types.js";
+import type { Frame, RasterOptions, SurfaceStyle, Tile, TileLayout, TileSlot } from "./types.js";
 
 /**
  * The G2 accepts a maximum of four image containers per page. This is a
@@ -98,6 +98,40 @@ export function validateLayout(layout: TileLayout, width = 576, height = 288): s
 }
 
 /**
+ * Which tiles changed since the last frame.
+ *
+ * Both the app shell and the transport need this answer, and for a while they
+ * each kept their own copy of the bookkeeping — two places to get subtly out of
+ * step. One object, two instances of it.
+ */
+export class TileDiff {
+  private hashes = new Map<number, number>();
+
+  /** Tiles whose contents differ from the last call. Records them as seen. */
+  changed(tiles: Tile[]): Tile[] {
+    const dirty: Tile[] = [];
+    for (const tile of tiles) {
+      if (this.hashes.get(tile.id) !== tile.hash) {
+        dirty.push(tile);
+        this.hashes.set(tile.id, tile.hash);
+      }
+    }
+    return dirty;
+  }
+
+  /** Peek without recording — for a transport that may fail to deliver. */
+  peek(tiles: Tile[]): Tile[] {
+    return tiles.filter((tile) => this.hashes.get(tile.id) !== tile.hash);
+  }
+
+  accept(tile: Tile): void { this.hashes.set(tile.id, tile.hash); }
+  reject(tile: Tile): void { this.hashes.delete(tile.id); }
+
+  /** Forget everything, so the next comparison reports a full repaint. */
+  reset(): void { this.hashes.clear(); }
+}
+
+/**
  * A framebuffer plus its tiling.
  *
  * `toFrame()` reuses its buffers between calls, so a steady-state app allocates
@@ -125,6 +159,13 @@ export class GlyphFrame {
 
   get width(): number { return this.raster.width; }
   get height(): number { return this.raster.height; }
+
+  /** How panels and tracks draw themselves on this frame's surface. */
+  get surface(): SurfaceStyle { return this.raster.surface; }
+  set surface(style: SurfaceStyle) { this.raster.surface = style; }
+
+  /** Release the underlying canvases. */
+  dispose(): void { this.raster.dispose(); }
 
   /** Paint into the framebuffer. */
   draw(fn: (g: GlyphRaster) => void): this {

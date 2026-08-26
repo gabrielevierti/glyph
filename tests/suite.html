@@ -1,13 +1,18 @@
 <!doctype html><html><head><meta charset="utf-8"></head><body><script type="module">
 import {
-  GlyphFrame, GlyphApp, TILE_LAYOUTS, packGray4, unpackGray4, hashBytes,
-  wrap, truncate, row, column, grow, screen as SCREEN, safe as SAFE, GlyphRaster,
-  setSurfaceStyle, inkBudget, validateLayout, MAX_IMAGE_CONTAINERS
+  ChangeRecorder, GlyphFrame, GlyphApp, GlyphRaster, TILE_LAYOUTS, TileDiff,
+  auto, column, fitStyle, grow, hashBytes, inkBudget, minContrast, packGray4, row,
+  safe as SAFE, screen as SCREEN, truncate, unpackGray4, validateLayout, wrap, wrapClamped,
+  MAX_IMAGE_CONTAINERS, type as T
 } from "/src/glyph/index.ts";
 import { screens } from "/src/apps/index.ts";
 
 const results = [];
 const ok = (name, pass, detail = "") => results.push({ name, pass, detail });
+const ctx = (frame, now, index = 0) => ({
+  g: frame.raster, now, screen: { x: 0, y: 0, ...SCREEN }, safe: SAFE,
+  app: { screens, screenIndex: index, frame, transportStats: null, lastDirtyTiles: 0 }
+});
 
 // 1. Gray4 pack/unpack round-trips exactly.
 {
@@ -40,7 +45,7 @@ for (const [name, layout] of Object.entries(TILE_LAYOUTS)) {
   const render = () => {
     const f = new GlyphFrame({ tileLayout: TILE_LAYOUTS.quadrants });
     f.raster.clear(0);
-    screens[2].render({ g: f.raster, now: 5000, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 2 } });
+    screens[2].render(ctx(f, 5000, 2));
     return f.toFrame().tiles.map((t) => t.hash);
   };
   const a = render(), b = render();
@@ -52,7 +57,7 @@ for (const [name, layout] of Object.entries(TILE_LAYOUTS)) {
   const f = new GlyphFrame({ tileLayout: TILE_LAYOUTS.quadrants });
   const paint = (now) => {
     f.raster.clear(0);
-    screens[2].render({ g: f.raster, now, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 2 } });
+    screens[2].render(ctx(f, now, 2));
     return f.toFrame().tiles.map((t) => t.hash);
   };
   const t0 = paint(5000);
@@ -91,6 +96,63 @@ for (const [name, layout] of Object.entries(TILE_LAYOUTS)) {
   ok("truncate fits width", r.measure(cut, { size: 12 }) <= 60 && cut.endsWith("…"), cut);
 }
 
+// 6b. Clamping to a line count never produces a doubled ellipsis.
+//     Appending "…" and *then* truncating can leave the appended mark inside the
+//     budget, which reads as "text……". Widths are swept so the bug cannot hide
+//     in the one column width someone happened to test.
+{
+  const r = new GlyphRaster({ width: 200, height: 60 });
+  const style = { size: 12 };
+  let doubled = 0;
+  let overflowed = 0;
+  for (let width = 30; width <= 190; width += 1) {
+    const lines = wrapClamped(r.measure, "Wind WNW gusting 24 knots over the shoal", style, width, 2);
+    for (const line of lines) {
+      if (/……/.test(line)) doubled++;
+      if (r.measure(line, style) > width + 0.01) overflowed++;
+    }
+  }
+  ok("wrapClamped never doubles the ellipsis", doubled === 0, `${doubled} lines`);
+  ok("wrapClamped stays inside the box", overflowed === 0, `${overflowed} lines`);
+}
+
+// 6c. fitStyle finds the same size a linear walk would, in far fewer measures.
+{
+  const r = new GlyphRaster({ width: 200, height: 60 });
+  const base = { ...T.numeralXl };
+  let mismatch = 0;
+  for (const text of ["9.1", "247.8", "1013.2", "-0.4"]) {
+    for (const width of [40, 60, 90, 140]) {
+      const fitted = fitStyle(r.measure, text, base, width);
+      let linear = base.size;
+      while (linear > 9 && r.measure(text, { ...base, size: linear }) > width) linear -= 1;
+      if (fitted.size !== linear) mismatch++;
+      if (r.measure(text, fitted) > width && fitted.size > 9) mismatch++;
+    }
+  }
+  ok("fitStyle matches a linear search", mismatch === 0, `${mismatch} mismatches`);
+}
+
+// 6d. Tracked text lands where it was measured to land.
+//     `measure` used to total the whole string while drawing advanced glyph by
+//     glyph, so every centred uppercase label drifted a little to one side.
+{
+  const f = new GlyphFrame({ supersample: 2 });
+  f.raster.clear(0);
+  const cx = 288;
+  f.raster.text("SEASTATE CONDITIONS", cx, 144, T.label, 15, "center", "middle");
+  const px = f.toLevels();
+  let minX = 576, maxX = -1;
+  for (let y = 128; y < 162; y++) {
+    for (let x = 0; x < 576; x++) {
+      if (px[y * 576 + x] > 0) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
+    }
+  }
+  const middle = (minX + maxX) / 2;
+  ok("centred tracked text is centred", maxX > 0 && Math.abs(middle - cx) < 2.5,
+     `ink spans ${minX}..${maxX}, middle ${middle} vs ${cx}`);
+}
+
 // 7. Flex layout: fixed + grow sums to the container, gaps included.
 {
   const box = { x: 0, y: 0, width: 300, height: 100 };
@@ -102,25 +164,65 @@ for (const [name, layout] of Object.entries(TILE_LAYOUTS)) {
   ok("column padding applied", rows[0].y === 10 && rows[0].width === 280);
 }
 
-// 8. Every screen renders without throwing, at several points in time.
+// 7b. Intrinsic sizing. `"auto"` used to be in the type and silently resolve to
+//     zero — a public API that produced empty rects and no complaint.
+{
+  const box = { x: 0, y: 0, width: 300, height: 40 };
+  const cells = row(box, [auto(80), { size: grow(1) }, auto((cross) => cross)], { gap: 10 });
+  ok("auto takes its intrinsic size", cells[0].width === 80, `${cells[0].width}`);
+  ok("auto can measure from the cross axis", cells[2].width === 40, `${cells[2].width}`);
+  ok("grow absorbs what auto leaves", Math.abs(cells[1].width - (300 - 80 - 40 - 20)) < 0.01);
+
+  let threw = false;
+  try { row(box, [{ size: "auto" }]); } catch { threw = true; }
+  ok("auto without intrinsic is an error, not a zero", threw);
+
+  const clamped = row(box, [{ size: grow(1), max: 50 }, { size: grow(1) }]);
+  ok("flex min/max respected", clamped[0].width === 50, `${clamped[0].width}`);
+}
+
+// 8. Every screen renders without throwing, at several points in time, in both
+//    surface styles.
 for (const s of screens) {
   let error = null;
   try {
-    const f = new GlyphFrame();
-    for (const now of [0, 1234, 9999, 60000]) {
-      f.raster.clear(0);
-      s.render({ g: f.raster, now, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 0 } });
+    for (const surface of ["outline", "filled"]) {
+      const f = new GlyphFrame({ surface });
+      for (const now of [0, 1234, 9999, 60000]) {
+        f.raster.clear(0);
+        s.render(ctx(f, now));
+      }
+      f.toFrame();
+      f.dispose();
     }
-    f.toFrame();
   } catch (e) { error = String(e); }
   ok(`screen ${s.name} renders clean`, error === null, error ?? "");
+}
+
+// 8b. Surface style is per-raster, not a module global. Two frames drawing at
+//     the same time must be able to disagree — a parallel test run depends on it.
+{
+  const a = new GlyphFrame({ surface: "outline" });
+  const b = new GlyphFrame({ surface: "filled" });
+  a.raster.clear(0); b.raster.clear(0);
+  screens[0].render(ctx(a, 4200));
+  screens[0].render(ctx(b, 4200));
+  const inkOf = (frame) => {
+    const px = frame.toLevels();
+    let sum = 0;
+    for (let i = 0; i < px.length; i++) sum += px[i];
+    return sum / (px.length * 15);
+  };
+  const outline = inkOf(a), filled = inkOf(b);
+  ok("surface style is per-raster", outline < filled, `${(outline * 100).toFixed(1)}% vs ${(filled * 100).toFixed(1)}%`);
+  ok("layers inherit their parent's surface", a.raster.layer().surface === "outline");
 }
 
 // 9. Nothing is drawn outside the 576x288 surface (checks the safe-area habit).
 {
   const f = new GlyphFrame();
   f.raster.clear(0);
-  screens[0].render({ g: f.raster, now: 3000, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 0 } });
+  screens[0].render(ctx(f, 3000));
   const px = f.toLevels();
   let edgeInk = 0;
   for (let x = 0; x < 576; x++) { if (px[x] > 1) edgeInk++; if (px[287 * 576 + x] > 1) edgeInk++; }
@@ -129,21 +231,88 @@ for (const s of screens) {
 
 // 10. Every screen stays inside the ink budget — this is a see-through display,
 //     and mean level is the fraction of the world the UI is hiding.
-{
-  setSurfaceStyle("outline");
-  for (const s of screens) {
-    const f = new GlyphFrame({ supersample: 2 });
-    f.raster.clear(0);
-    s.render({ g: f.raster, now: 3000, screen: {x:0,y:0,...SCREEN}, safe: SAFE, app: { screens, screenIndex: 0 } });
-    const px = f.toLevels();
-    let sum = 0;
-    for (let i = 0; i < px.length; i++) sum += px[i];
-    const ink = sum / (px.length * 15);
-    ok(`ink budget ${s.name}`, ink <= inkBudget, `${(ink * 100).toFixed(1)}% of full brightness`);
-  }
+for (const s of screens) {
+  const f = new GlyphFrame({ supersample: 2, surface: "outline" });
+  f.raster.clear(0);
+  s.render(ctx(f, 3000));
+  const px = f.toLevels();
+  let sum = 0;
+  for (let i = 0; i < px.length; i++) sum += px[i];
+  const ink = sum / (px.length * 15);
+  ok(`ink budget ${s.name}`, ink <= inkBudget, `${(ink * 100).toFixed(1)}% of full brightness`);
+  f.dispose();
 }
 
-// 11. The app shell runs a paint loop and switches screens.
+// 10b. Contrast. Ink says how much of the world is hidden; contrast says whether
+//      what hides it can be read. A screen can pass the ink budget and still be
+//      illegible, so both are assertions.
+for (const s of screens) {
+  const f = new GlyphFrame({ supersample: 2, surface: "outline" });
+  const warnings = f.raster.enableContrastLint(minContrast);
+  f.raster.clear(0);
+  s.render(ctx(f, 3000));
+  const worst = warnings.slice(0, 2).map((w) => `"${w.text}" ${w.gray} on ${w.background}`).join(", ");
+  ok(`contrast ${s.name}`, warnings.length === 0, `${warnings.length} low-delta glyphs: ${worst}`);
+  f.dispose();
+}
+
+// 10c. The lint actually fires when it should — a test that never fails is not a test.
+{
+  const f = new GlyphFrame({ supersample: 2 });
+  const warnings = f.raster.enableContrastLint(4);
+  f.raster.clear(0);
+  f.raster.rect({ x: 0, y: 0, width: 200, height: 60 }, { fill: 8 });
+  f.raster.text("barely there", 20, 30, T.body, 9);
+  ok("contrast lint catches level 9 on level 8", warnings.length === 1, `${warnings.length} warnings`);
+}
+
+// 11. Brightness is a single global scale applied at resolve, so a whole design
+//     dims together without a component knowing about it.
+{
+  const full = new GlyphFrame({ supersample: 2 });
+  const dim = new GlyphFrame({ supersample: 2, brightness: 0.5 });
+  for (const f of [full, dim]) {
+    f.raster.clear(0);
+    f.raster.rect({ x: 10, y: 10, width: 100, height: 100 }, { fill: 14 });
+  }
+  ok("brightness scales output levels", dim.toLevels()[20 * 576 + 20] === 7,
+     `${dim.toLevels()[20 * 576 + 20]} vs ${full.toLevels()[20 * 576 + 20]}`);
+}
+
+// 12. Tile diffing is shared bookkeeping, and rejects re-send on the next frame.
+{
+  const diff = new TileDiff();
+  const tiles = [{ id: 10, hash: 1 }, { id: 11, hash: 2 }];
+  ok("first frame is entirely dirty", diff.changed(tiles).length === 2);
+  ok("unchanged frame sends nothing", diff.changed(tiles).length === 0);
+  diff.reject(tiles[0]);
+  ok("a failed tile is resent", diff.changed(tiles).length === 1);
+  diff.reset();
+  ok("reset forces a full repaint", diff.peek(tiles).length === 2);
+}
+
+// 13. The measured layout search beats the reference layout on its own metric.
+//     If it did not, the whole idea would be decoration.
+{
+  const f = new GlyphFrame({ supersample: 2, surface: "outline" });
+  const recorder = new ChangeRecorder();
+  for (let step = 0; step <= 12; step++) {
+    f.raster.clear(0);
+    screens[0].render(ctx(f, 4000 + step * 100));
+    recorder.observe(f.toLevels());
+  }
+  // Step 16 keeps the reference quadrant seams (288, 144) inside the search
+  // space, so "no worse than quadrants" is a fair comparison rather than a
+  // grid artefact.
+  const best = recorder.suggest({ step: 16 });
+  const baseline = recorder.cost(TILE_LAYOUTS.quadrants);
+  ok("search returns a valid layout", validateLayout(best.layout).length === 0, best.layout.note);
+  ok("search is no worse than quadrants", best.bytes <= baseline.bytes,
+     `${(best.bytes / 1024).toFixed(0)} KB vs ${(baseline.bytes / 1024).toFixed(0)} KB`);
+  f.dispose();
+}
+
+// 14. The app shell runs a paint loop and switches screens.
 {
   let paints = 0;
   const app = new GlyphApp({ screens, fps: 60, transitionMs: 60, onPaint: () => paints++ });
@@ -158,7 +327,24 @@ for (const s of screens) {
   app.handleInput({ type: "scroll-up" });
   await new Promise((r) => setTimeout(r, 200));
   ok("scroll-up goes back", app.screenIndex === (idx - 1 + screens.length) % screens.length);
-  app.stop();
+  app.dispose();
+}
+
+// 14b. Repeated transitions reuse their layers and keep landing on the right
+//      screen. Every screen change used to allocate two full 1152x576 canvases.
+{
+  const app = new GlyphApp({ screens, fps: 60, transitionMs: 40 });
+  app.start();
+  let error = null;
+  try {
+    for (let i = 0; i < 8; i++) { app.next(); await new Promise((r) => setTimeout(r, 50)); }
+  } catch (e) { error = String(e); }
+  ok("repeated transitions survive", error === null, error ?? "");
+  ok("transitions land on the right screen", app.screenIndex === 8 % screens.length, `${app.screenIndex}`);
+  app.dispose();
+  let disposeTwice = true;
+  try { app.dispose(); } catch { disposeTwice = false; }
+  ok("dispose is idempotent", disposeTwice);
 }
 
 window.__results = results;

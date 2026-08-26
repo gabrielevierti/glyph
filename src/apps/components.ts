@@ -23,22 +23,22 @@ export const componentsScreen: Screen = {
     // ── Lists ─────────────────────────────────────────────────────────────
     const listInner = section(g, leftCol, "List rows", { icon: "list" });
     const items = [
-      { icon: "anchor" as const, title: "Ormeggio", value: "18m", selected: false },
-      { icon: "route" as const, title: "Rotta attiva", value: "14.2", selected: true },
-      { icon: "boat" as const, title: "Motore", value: "OK", selected: false }
+      { icon: "anchor" as const, title: "Mooring", value: "18m", selected: false },
+      { icon: "route" as const, title: "Active Route", value: "14.2", selected: true },
+      { icon: "boat" as const, title: "Engine", value: "OK", selected: false }
     ];
     items.forEach((item, i) => {
       listRow(g, { x: listInner.x - 6, y: listInner.y + i * 30, width: listInner.width + 12, height: 30 }, {
         ...item, chevron: true
       });
     });
-    keyValue(g, { x: listInner.x, y: listInner.y + 94, width: listInner.width, height: 16 }, "Batteria", "72%", { leader: true });
-    keyValue(g, { x: listInner.x, y: listInner.y + 112, width: listInner.width, height: 16 }, "Serbatoio", "41 L", { leader: true });
+    keyValue(g, { x: listInner.x, y: listInner.y + 94, width: listInner.width, height: 16 }, "Battery", "72%", { leader: true });
+    keyValue(g, { x: listInner.x, y: listInner.y + 112, width: listInner.width, height: 16 }, "Fuel Tank", "41 L", { leader: true });
 
     // ── Controls ──────────────────────────────────────────────────────────
     const controlsInner = section(g, midCol, "Controls", { icon: "sliders" });
-    button(g, { x: controlsInner.x, y: controlsInner.y, width: 82, height: 26 }, "Salva", { primary: true, icon: "check" });
-    button(g, { x: controlsInner.x + 90, y: controlsInner.y, width: 72, height: 26 }, "Annulla", { focused: true });
+    button(g, { x: controlsInner.x, y: controlsInner.y + 5, width: 82, height: 26 }, "Save", { primary: true, icon: "check" });
+    button(g, { x: controlsInner.x + 90, y: controlsInner.y + 5, width: 72, height: 26 }, "cancel", { focused: true });
 
     toggle(g, controlsInner.x, controlsInner.y + 44, Math.sin(t) > 0);
     g.text("Ancora", controlsInner.x + 40, controlsInner.y + 44, T.caption, G.secondary, "left", "middle");
@@ -50,17 +50,17 @@ export const componentsScreen: Screen = {
       Math.floor(4 + Math.sin(t) * 3));
 
     let px = controlsInner.x;
-    px += pill(g, px, controlsInner.y + 106, "ATTIVO", { icon: "check-circle" }) + 6;
+    px += pill(g, px, controlsInner.y + 106, "ACTIVE", { icon: "check-circle" }) + 6;
     px += tag(g, px, controlsInner.y + 106, "BETA") + 8;
     badge(g, px + 8, controlsInner.y + 106, 12);
 
     // ── Overlays ──────────────────────────────────────────────────────────
     const overlayInner = section(g, rightCol, "Overlays", { icon: "layers" });
-    toast(g, { x: overlayInner.x, y: overlayInner.y, width: overlayInner.width, height: 28 }, "Rotta salvata", { icon: "check" });
-    emptyState(g, { x: overlayInner.x, y: overlayInner.y + 34, width: overlayInner.width, height: 78 },
-      "search", "Nessun risultato", "Prova un altro termine di ricerca");
+    toast(g, { x: overlayInner.x, y: overlayInner.y +5, width: overlayInner.width, height: 28 }, "Saved Route", { icon: "check" });
+    emptyState(g, { x: overlayInner.x, y: overlayInner.y + 40, width: overlayInner.width, height: 78 },
+      "search", "No results", "Try again");
 
-    g.text("TOAST · EMPTY STATE · SCRIM", overlayInner.x, bottom(overlayInner) - 2, T.micro, G.tertiary, "left", "bottom");
+    g.text("TOAST · EMPTY STATE · HELLO", overlayInner.x, bottom(overlayInner) - 2, T.micro, G.tertiary, "left", "bottom");
 
     pageDots(g, centerX(footer), centerY(footer) + 2, app.screens.length, app.screenIndex);
   }

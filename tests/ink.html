@@ -1,7 +1,7 @@
 <!doctype html>
 <html><head><meta charset="utf-8"></head><body>
 <script type="module">
-import { GlyphFrame, screen as SCREEN, safe as SAFE, setSurfaceStyle } from "/src/glyph/index.ts";
+import { GlyphFrame, screen as SCREEN, safe as SAFE } from "/src/glyph/index.ts";
 import { screens } from "/src/apps/index.ts";
 
 /**
@@ -12,9 +12,8 @@ import { screens } from "/src/apps/index.ts";
 const CLOCKS = [4200, 4200, 5000, 3000, 3000, 2000];
 
 const measure = (style) => {
-  setSurfaceStyle(style);
   return screens.map((screen, i) => {
-    const frame = new GlyphFrame({ supersample: 3 });
+    const frame = new GlyphFrame({ supersample: 3, surface: style });
     frame.raster.clear(0);
     screen.render({
       g: frame.raster, now: CLOCKS[i] ?? 3000,
@@ -24,11 +23,11 @@ const measure = (style) => {
     const pixels = frame.toLevels();
     let sum = 0, lit = 0;
     for (let j = 0; j < pixels.length; j++) { sum += pixels[j]; if (pixels[j] > 0) lit++; }
+    frame.dispose();
     return { name: screen.name, ink: sum / (pixels.length * 15), lit: lit / pixels.length };
   });
 };
 
 window.__ink = { filled: measure("filled"), outline: measure("outline") };
-setSurfaceStyle("outline");
 window.__done = true;
 </script></body></html>

@@ -1,34 +1,43 @@
 <!doctype html>
 <html><head><meta charset="utf-8"></head><body>
 <script type="module">
-import { GlyphFrame, TILE_LAYOUTS, screen as SCREEN, safe as SAFE } from "/src/glyph/index.ts";
+import {
+  ChangeRecorder, GlyphFrame, TILE_LAYOUTS, layoutToSource,
+  screen as SCREEN, safe as SAFE
+} from "/src/glyph/index.ts";
 import { screens } from "/src/apps/index.ts";
 
 /**
  * With four containers fixed by hardware, tile *shape* is the only remaining
  * lever on transport cost. This measures, per screen and per layout, how many
- * bytes a second of animation actually costs.
+ * bytes a second of animation actually costs — and then searches for a shape
+ * nobody thought to draw.
  */
 const report = {};
+const measured = {};
+const source = {};
+
+const paint = (frame, screen, index, now) => {
+  frame.raster.clear(0);
+  screen.render({
+    g: frame.raster, now,
+    screen: { x: 0, y: 0, ...SCREEN }, safe: SAFE,
+    app: { screens, screenIndex: index, frame, transportStats: null, lastDirtyTiles: 0 }
+  });
+};
 
 for (const [layoutName, layout] of Object.entries(TILE_LAYOUTS)) {
   const frame = new GlyphFrame({ tileLayout: layout, supersample: 2 });
   report[layoutName] = {};
 
   for (let s = 0; s < screens.length; s++) {
-    const screen = screens[s];
     let dirty = 0;
     let bytes = 0;
     let previous = new Map();
 
     // Ten paints across one second of animation.
     for (let step = 0; step <= 10; step++) {
-      frame.raster.clear(0);
-      screen.render({
-        g: frame.raster, now: 4000 + step * 100,
-        screen: { x: 0, y: 0, ...SCREEN }, safe: SAFE,
-        app: { screens, screenIndex: s }
-      });
+      paint(frame, screens[s], s, 4000 + step * 100);
       const tiles = frame.toFrame().tiles;
       if (step > 0) {
         for (const tile of tiles) {
@@ -37,10 +46,27 @@ for (const [layoutName, layout] of Object.entries(TILE_LAYOUTS)) {
       }
       previous = new Map(tiles.map((t) => [t.id, t.hash]));
     }
-    report[layoutName][screen.name] = { dirty, kb: bytes / 1024 };
+    report[layoutName][screens[s].name] = { dirty, kb: bytes / 1024 };
   }
+  frame.dispose();
+}
+
+// The same measurement, but letting the search pick the shape.
+for (let s = 0; s < screens.length; s++) {
+  const frame = new GlyphFrame({ supersample: 2 });
+  const recorder = new ChangeRecorder();
+  for (let step = 0; step <= 10; step++) {
+    paint(frame, screens[s], s, 4000 + step * 100);
+    recorder.observe(frame.toLevels());
+  }
+  const best = recorder.suggest({ step: 16, name: `measured-${screens[s].name.toLowerCase()}` });
+  measured[screens[s].name] = { kb: best.bytes / 1024, note: best.layout.note, tiles: best.tilesPerFrame };
+  source[screens[s].name] = layoutToSource(best.layout, `TILE_${screens[s].name.toUpperCase()}`);
+  frame.dispose();
 }
 
 window.__report = report;
+window.__measured = measured;
+window.__source = source;
 window.__done = true;
 </script></body></html>

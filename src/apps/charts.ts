@@ -34,7 +34,7 @@ export const chartsScreen: Screen = {
     ], { gridLines: 4, gutter: 24, format: (v) => String(Math.round(v)), labels: ["-8h", "-4h", "now"] });
 
     const gaugeInner = section(g, gaugeBox, "Load");
-    gaugeChart(g, centerX(gaugeInner), centerY(gaugeInner) - 14, 30, 55 + Math.sin(t / 2) * 30, {
+    gaugeChart(g, centerX(gaugeInner), centerY(gaugeInner), 30, 55 + Math.sin(t / 2) * 30, {
       min: 0, max: 100, ticks: 6, label: "CPU %",
       format: (v) => String(Math.round(v)),
       zones: [{ from: 80, to: 100, gray: G.border }]
@@ -61,7 +61,7 @@ export const chartsScreen: Screen = {
     ], { labelWidth: 48, format: (v) => `${v}%` });
 
     const miscInner = section(g, miscBox, "Attitude");
-    attitudeIndicator(g, centerX(miscInner), centerY(miscInner) - 4, 30, Math.sin(t / 2) * 8, Math.sin(t / 3) * 14);
+    attitudeIndicator(g, centerX(miscInner), centerY(miscInner) + 5, 30, Math.sin(t / 2) * 8, Math.sin(t / 3) * 14);
 
     // A dense strip beneath everything: 24 hours in 12 pixels of height.
     heatStrip(g, { x: footer.x, y: footer.y - 2, width: 200, height: 8 }, load, { low: G.sunken, high: G.max });

@@ -2,7 +2,7 @@
   "package_id": "com.gabrielevierti.glyph",
   "name": "Glyph",
   "description": "Graphics and UI framework demo for Even Realities G2.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "manifest_version": "202601",
   "entrypoint": "index.html"
 }

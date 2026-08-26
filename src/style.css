@@ -92,3 +92,24 @@ select, input[type="checkbox"] {
 }
 .dot.on { color: var(--accent); }
 .dot.on::before { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+/* Secondary bar: whatever the harness currently has to say — contrast
+   warnings, the result of a layout search, whether a bitmap atlas is loaded. */
+.bar.notes {
+  justify-content: flex-start;
+  color: var(--dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-height: 34px;
+}
+
+input[type="range"] {
+  width: 74px;
+  accent-color: var(--accent);
+  background: transparent;
+}
+
+button[data-action="optimise"] {
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}

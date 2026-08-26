@@ -1,15 +1,30 @@
 import { inset } from "./geometry.js";
 import type { Insets, Rect } from "./types.js";
 
+/**
+ * A main-axis length: a fixed number of pixels, a share of the leftover space,
+ * or `"auto"` — the item's own natural size, which it has to be able to report.
+ */
 export type Length = number | "auto" | { grow: number };
 
 export interface FlexItem {
-  /** Fixed size along the main axis, or a share of the leftover space. */
+  /** Fixed size along the main axis, a share of the leftover space, or "auto". */
   size?: Length;
+  /**
+   * Natural main-axis size, used when `size` is `"auto"`. Give a number if you
+   * already know it, or a function if measuring is expensive — it is called at
+   * most once, and receives the cross-axis extent so text can measure to a wrap
+   * width.
+   */
+  intrinsic?: number | ((crossSize: number) => number);
   /** Size along the cross axis. Defaults to filling. */
   cross?: number;
   /** Cross-axis alignment for this item. */
   align?: "start" | "center" | "end" | "stretch";
+  /** Never shrink below this, even when auto/grow arithmetic says otherwise. */
+  min?: number;
+  /** Never exceed this. */
+  max?: number;
 }
 
 export interface FlexOptions {
@@ -18,6 +33,23 @@ export interface FlexOptions {
   /** Main-axis distribution when there is leftover space and nothing grows. */
   justify?: "start" | "center" | "end" | "between" | "around";
   align?: "start" | "center" | "end" | "stretch";
+}
+
+function intrinsicOf(item: FlexItem, crossSize: number, index: number): number {
+  const source = item.intrinsic;
+  if (typeof source === "number") return source;
+  if (typeof source === "function") return source(crossSize);
+  throw new Error(
+    `Glyph: flex item ${index} has size "auto" but no \`intrinsic\`. ` +
+    `Give it a number, or a (crossSize) => number, so it can report its own size.`
+  );
+}
+
+function clampLength(value: number, item: FlexItem): number {
+  let v = value;
+  if (item.min !== undefined) v = Math.max(v, item.min);
+  if (item.max !== undefined) v = Math.min(v, item.max);
+  return Math.max(0, v);
 }
 
 function resolve(
@@ -31,10 +63,10 @@ function resolve(
 
   let fixed = 0;
   let growTotal = 0;
-  const sizes = items.map((item) => {
+  const sizes = items.map((item, i) => {
     const s = item.size ?? { grow: 1 };
-    if (typeof s === "number") { fixed += s; return s; }
-    if (s === "auto") { fixed += 0; return 0; }
+    if (typeof s === "number") { const v = clampLength(s, item); fixed += v; return v; }
+    if (s === "auto") { const v = clampLength(intrinsicOf(item, crossSize, i), item); fixed += v; return v; }
     growTotal += s.grow;
     return null;
   });
@@ -43,7 +75,7 @@ function resolve(
   const resolved = sizes.map((s, i) => {
     if (s !== null) return s;
     const spec = items[i].size as { grow: number };
-    return growTotal > 0 ? (free * spec.grow) / growTotal : 0;
+    return clampLength(growTotal > 0 ? (free * spec.grow) / growTotal : 0, items[i]);
   });
 
   const used = resolved.reduce((a, b) => a + b, 0) + totalGap;
@@ -92,6 +124,10 @@ export function columnOf(container: Rect, sizes: Length[], opts: FlexOptions = {
 
 /** Equal-weight children. */
 export const grow = (n = 1): Length => ({ grow: n });
+
+/** An item sized to its own content. `of` may be a number or a measuring function. */
+export const auto = (of: number | ((crossSize: number) => number), extra: Omit<FlexItem, "size" | "intrinsic"> = {}): FlexItem =>
+  ({ size: "auto", intrinsic: of, ...extra });
 
 /**
  * A simple stack: every child gets the full container, minus padding.

@@ -55,6 +55,24 @@ export interface TextStyle {
   uppercase?: boolean;
 }
 
+/**
+ * How surfaces are drawn.
+ *
+ * The G2 is see-through: every lit pixel is a pixel of the world you cannot
+ * see through. A filled card that would read as "elevated" on a phone reads as
+ * "smudge on the lens" on a waveguide, so `outline` is the default. `filled`
+ * is kept for the browser preview and for screenshots, where a solid surface
+ * photographs better and nothing is being occluded.
+ *
+ * This lives on the raster, not in a module global — two rasters (a screen and
+ * an offscreen layer, a test and the app it is testing) can disagree, and a
+ * parallel test run cannot corrupt another test's setting.
+ */
+export type SurfaceStyle = "outline" | "filled";
+
+/** Anything carrying a surface style. Components take a raster; this is all they need. */
+export interface SurfaceStyled { surface: SurfaceStyle; }
+
 /** A tile of packed Gray4 data destined for one G2 image container. */
 export interface Tile {
   id: number;
@@ -93,6 +111,9 @@ export interface Frame {
   tiles: Tile[];
 }
 
+/** A canvas factory. Injected so the raster can run outside a browser. */
+export type CanvasFactory = (w: number, h: number) => HTMLCanvasElement;
+
 export interface RasterOptions {
   width?: number;
   height?: number;
@@ -100,5 +121,15 @@ export interface RasterOptions {
   supersample?: number;
   background?: Gray;
   /** Injected for headless use. Defaults to `document.createElement("canvas")`. */
-  createCanvas?: (w: number, h: number) => HTMLCanvasElement;
+  createCanvas?: CanvasFactory;
+  /** How panels and tracks are drawn. Defaults to `outline`. */
+  surface?: SurfaceStyle;
+  /**
+   * Global output scale, 0..1, applied once at resolve. The whole design dims
+   * together — useful indoors, or for a low-power mode, without touching a
+   * single component.
+   */
+  brightness?: number;
+  /** Collect contrast warnings while drawing. Development and tests only. */
+  lint?: boolean | { minDelta: number };
 }

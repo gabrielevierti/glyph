@@ -1,0 +1,222 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="preconnect" href="https://rsms.me/">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+</head>
+<body>
+<script type="module">
+import { GlyphFrame, familyOf, safe as SAFE, screen as SCREEN } from "/src/glyph/index.ts";
+import { screens } from "/src/apps/index.ts";
+import { benchScreen } from "/src/apps/bench.ts";
+
+/**
+ * Builds a bitmap font atlas.
+ *
+ * Two passes. The first renders every screen with a style observer attached and
+ * collects the exact set of (family, weight, size, italic) the app asks for —
+ * including the one-off sizes screens spell inline, which a hand-maintained
+ * list always drifts away from. The second rasterizes each of those faces glyph
+ * by glyph and packs the coverage into one bitmap.
+ *
+ * Glyphs are rasterized at *logical* resolution, deliberately. The atlas is the
+ * final pixel grid; there is nothing to supersample down to.
+ */
+
+const CHARSET = [
+  ...Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)),
+  // Italian and the marks the reference screens actually use.
+  ..."àèéìòùÀÈÉÌÒÙ°·×±≈…‹›→←↑↓⁄–—“”‘’"
+];
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ── Pass 1: which faces does this app need? ────────────────────────────────
+
+function discover() {
+  const seen = new Map();
+  const frame = new GlyphFrame({ supersample: 2 });
+  frame.raster.fontMode = "canvas";
+  frame.raster.observeStyles((style) => {
+    const family = familyOf(style);
+    const weight = Number(style.weight ?? 500);
+    const size = Math.round(style.size ?? 16);
+    const italic = style.italic ?? false;
+    const key = `${family}|${weight}|${size}|${italic ? 1 : 0}`;
+    if (!seen.has(key)) seen.set(key, { family, stack: style.font ?? "Inter", weight, size, italic });
+  });
+
+  const all = [...screens, benchScreen];
+  for (const screen of all) {
+    for (const now of [0, 900, 2000, 3000, 4200, 5000, 9999, 60000]) {
+      frame.raster.clear(0);
+      for (const surface of ["outline", "filled"]) {
+        frame.raster.surface = surface;
+        try {
+          screen.render({
+            g: frame.raster, now,
+            screen: { x: 0, y: 0, ...SCREEN }, safe: SAFE,
+            app: { screens: all, screenIndex: 0, frame, transportStats: null, lastDirtyTiles: 0 }
+          });
+        } catch (error) {
+          console.warn(`discovery: ${screen.name} threw at ${now}ms`, error);
+        }
+      }
+    }
+  }
+  frame.raster.observeStyles(null);
+  frame.dispose();
+  return [...seen.values()].sort((a, b) =>
+    a.family.localeCompare(b.family) || a.weight - b.weight || a.size - b.size);
+}
+
+// ── Pass 2: rasterize ──────────────────────────────────────────────────────
+
+function fontString({ stack, weight, size, italic }) {
+  return `${italic ? "italic " : ""}${weight} ${size}px ${stack}`;
+}
+
+/** Which family the browser actually resolved — printed so a mismatch is visible. */
+function resolvedFamily(spec) {
+  const probe = document.createElement("span");
+  probe.style.font = fontString(spec);
+  probe.textContent = "Hg";
+  document.body.append(probe);
+  const used = getComputedStyle(probe).fontFamily.split(",")[0].trim().replace(/^["']|["']$/g, "");
+  probe.remove();
+  return used;
+}
+
+function rasterizeFace(spec) {
+  const pad = 2;
+  const box = Math.ceil(spec.size * 2.2) + pad * 2;
+  const cell = document.createElement("canvas");
+  cell.width = box;
+  cell.height = box;
+  const cctx = cell.getContext("2d", { willReadFrequently: true });
+
+  cctx.font = fontString(spec);
+  const probe = cctx.measureText("Hg");
+  const ascent = Math.ceil(probe.fontBoundingBoxAscent || spec.size * 0.8);
+  const descent = Math.ceil(probe.fontBoundingBoxDescent || spec.size * 0.25);
+  const capHeight = cctx.measureText("H").actualBoundingBoxAscent || spec.size * 0.72;
+
+  const originX = pad;
+  const originY = ascent + pad;
+  const glyphs = [];
+
+  for (const ch of CHARSET) {
+    cctx.clearRect(0, 0, box, box);
+    cctx.font = fontString(spec);
+    cctx.textAlign = "left";
+    cctx.textBaseline = "alphabetic";
+    cctx.fillStyle = "#fff";
+    cctx.fillText(ch, originX, originY);
+    const advance = cctx.measureText(ch).width;
+
+    const data = cctx.getImageData(0, 0, box, box).data;
+    let minX = box, minY = box, maxX = -1, maxY = -1;
+    for (let y = 0; y < box; y++) {
+      for (let x = 0; x < box; x++) {
+        if (data[(y * box + x) * 4 + 3] !== 0) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+
+    if (maxX < 0) { glyphs.push({ ch, w: 0, h: 0, left: 0, top: 0, advance, coverage: null }); continue; }
+    const w = maxX - minX + 1;
+    const h = maxY - minY + 1;
+    const coverage = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        coverage[y * w + x] = Math.round(data[((minY + y) * box + (minX + x)) * 4 + 3] / 17);
+      }
+    }
+    glyphs.push({
+      ch, w, h, coverage,
+      left: minX - originX,
+      // Distance from the baseline up to the top of the glyph bitmap.
+      top: originY - minY,
+      advance
+    });
+  }
+
+  // Shelf-pack into an atlas. Nothing clever: these are tiny and packed once.
+  const maxWidth = 512;
+  let shelfX = 0, shelfY = 0, shelfH = 0, atlasWidth = 0;
+  for (const glyph of glyphs) {
+    if (glyph.w === 0) { glyph.x = 0; glyph.y = 0; continue; }
+    if (shelfX + glyph.w > maxWidth) { shelfX = 0; shelfY += shelfH; shelfH = 0; }
+    glyph.x = shelfX;
+    glyph.y = shelfY;
+    shelfX += glyph.w;
+    shelfH = Math.max(shelfH, glyph.h);
+    atlasWidth = Math.max(atlasWidth, shelfX);
+  }
+  const width = Math.max(2, atlasWidth + (atlasWidth % 2));   // Gray4 needs an even width
+  const height = Math.max(1, shelfY + shelfH);
+
+  const bitmap = new Uint8Array(width * height);
+  for (const glyph of glyphs) {
+    if (!glyph.coverage) continue;
+    for (let y = 0; y < glyph.h; y++) {
+      for (let x = 0; x < glyph.w; x++) {
+        bitmap[(glyph.y + y) * width + (glyph.x + x)] = glyph.coverage[y * glyph.w + x];
+      }
+    }
+  }
+
+  // Pack to Gray4 and base64.
+  const packed = new Uint8Array((width * height) >> 1);
+  for (let i = 0, p = 0; i < bitmap.length; i += 2) packed[p++] = ((bitmap[i] & 15) << 4) | (bitmap[i + 1] & 15);
+  let binary = "";
+  for (const byte of packed) binary += String.fromCharCode(byte);
+
+  const table = {};
+  for (const glyph of glyphs) {
+    table[glyph.ch] = [glyph.x, glyph.y, glyph.w, glyph.h, glyph.left, glyph.top, glyph.advance];
+  }
+
+  return {
+    family: spec.family,
+    weight: spec.weight,
+    size: spec.size,
+    italic: spec.italic,
+    ascent,
+    lineHeight: ascent + descent,
+    capHeight,
+    width,
+    height,
+    data: btoa(binary),
+    glyphs: table,
+    fallbackAdvance: table[" "]?.[6] ?? spec.size * 0.3
+  };
+}
+
+// ── Run ────────────────────────────────────────────────────────────────────
+
+await document.fonts.ready;
+const specs = discover();
+for (const spec of specs) {
+  try { await document.fonts.load(fontString(spec), "Hg"); } catch { /* fallback stack */ }
+}
+await wait(120);
+
+const faces = [];
+const resolution = [];
+for (const spec of specs) {
+  resolution.push({ requested: spec.family, resolved: resolvedFamily(spec), weight: spec.weight, size: spec.size });
+  faces.push(rasterizeFace(spec));
+}
+
+window.__atlas = { version: 1, generator: `glyph build-font ${new Date().toISOString().slice(0, 10)}`, faces };
+window.__resolution = resolution;
+window.__done = true;
+</script>
+</body>
+</html>

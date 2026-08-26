@@ -43,11 +43,17 @@ export const seaStateScreen: Screen = {
     const [speedBox, depthBox] = column(leftCol, [{ size: grow(1.35) }, { size: grow(1) }], { gap: S.sm });
 
     const speedInner = section(g, speedBox, "Speed", { accessory: "SOG · GPS" });
+    
+    speedInner.y += 20;
+
     metric(g, speedInner, c.sog.toFixed(1), {
-      unit: "kn", label: "SOG", valueStyle: { ...T.numeralXl, size: 46 }
+      unit: "kn", label: "", valueStyle: { ...T.numeralXl, size: 46 }
     });
 
     const depthInner = section(g, depthBox, "Depth", { accessory: c.depth < 12 ? "SHOAL" : "" });
+
+    depthInner.y += 15;
+
     metric(g, depthInner, c.depth.toFixed(1), { unit: "m", label: "Below keel", valueStyle: T.numeralXl });
 
     // ── Compass: the thing you actually steer by ──────────────────────────

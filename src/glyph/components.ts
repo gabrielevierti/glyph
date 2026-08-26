@@ -22,7 +22,7 @@ export interface PanelOptions {
 /** The base container. Everything else sits on one of these. */
 export function panel(g: GlyphRaster, r: Rect, opts: PanelOptions = {}): Rect {
   const rad = opts.radius ?? R.lg;
-  const outline = isOutline();
+  const outline = isOutline(g);
   // In outline mode a panel is its border. In filled mode it is its fill.
   const fill = opts.fill ?? (outline ? undefined : G.surface);
   const stroke = opts.stroke ?? (outline ? G.border : undefined);
@@ -160,7 +160,7 @@ export interface ListRowOptions {
 /** One row of a list. Selection is a filled well, not a colour change. */
 export function listRow(g: GlyphRaster, r: Rect, opts: ListRowOptions): void {
   if (opts.selected) {
-    if (isOutline()) {
+    if (isOutline(g)) {
       // A bright edge marker costs a few dozen pixels; a filled row costs the view.
       g.roundRect({ x: r.x, y: r.y + 2, width: 2.5, height: r.height - 4 }, 1.5, { fill: G.max });
       g.roundRect(r, R.md, { stroke: G.hairline, width: 1 });
@@ -206,7 +206,7 @@ export function progressBar(
   const v = clamp(value, 0, 1);
   const rad = opts.radius ?? r.height / 2;
   if (opts.track !== undefined) g.roundRect(r, rad, { fill: opts.track });
-  else if (isOutline()) g.roundRect(r, rad, { stroke: G.hairline, width: 1 });
+  else if (isOutline(g)) g.roundRect(r, rad, { stroke: G.hairline, width: 1 });
   else g.roundRect(r, rad, { fill: G.sunken });
   if (opts.ticks) {
     for (let i = 1; i < opts.ticks; i++) g.vline(r.x + (r.width * i) / opts.ticks, r.y, bottom(r), G.off);
@@ -225,7 +225,7 @@ export function segmentedBar(
     const cell = { x: r.x + i * (w + gap), y: r.y, width: w, height: r.height };
     const rad = Math.min(2, r.height / 2);
     if (i < filled) g.roundRect(cell, rad, { fill: opts.fill ?? G.max });
-    else if (isOutline() && opts.track === undefined) g.roundRect(cell, rad, { stroke: G.hairline, width: 1 });
+    else if (isOutline(g) && opts.track === undefined) g.roundRect(cell, rad, { stroke: G.hairline, width: 1 });
     else g.roundRect(cell, rad, { fill: opts.track ?? G.sunken });
   }
 }
@@ -286,7 +286,7 @@ export function tabBar(g: GlyphRaster, r: Rect, tabs: string[], active: number):
 /** Vertical scroll indicator for lists that overflow. */
 export function scrollbar(g: GlyphRaster, r: Rect, offset: number, visible: number, total: number): void {
   if (total <= visible) return;
-  if (!isOutline()) g.roundRect(r, r.width / 2, { fill: G.sunken });
+  if (!isOutline(g)) g.roundRect(r, r.width / 2, { fill: G.sunken });
   const h = Math.max(10, (visible / total) * r.height);
   const y = r.y + (offset / total) * r.height;
   g.roundRect({ x: r.x, y: Math.min(y, bottom(r) - h), width: r.width, height: h }, r.width / 2, { fill: G.border });
@@ -307,7 +307,7 @@ export function pill(
   const w = g.measure(text, style) + 16 + iconW;
   const box = { x, y: y - h / 2, width: w, height: h };
   if (opts.fill !== undefined) g.roundRect(box, h / 2, { fill: opts.fill });
-  else if (isOutline()) g.roundRect(box, h / 2, { stroke: G.border, width: 1 });
+  else if (isOutline(g)) g.roundRect(box, h / 2, { stroke: G.border, width: 1 });
   else g.roundRect(box, h / 2, { fill: G.raised });
   if (opts.icon) icon(g, opts.icon, x + 12, y, 11, opts.gray ?? G.secondary);
   g.text(text, x + 8 + iconW, y, style, opts.gray ?? G.primary, "left", "middle");
@@ -335,7 +335,7 @@ export function button(
   g: GlyphRaster, r: Rect, text: string,
   opts: { icon?: GlyphIconName; primary?: boolean; focused?: boolean } = {}
 ): void {
-  const outline = isOutline();
+  const outline = isOutline(g);
   const fill = outline ? undefined : opts.primary ? G.max : G.raised;
   const fg = outline ? (opts.primary ? G.max : G.secondary) : opts.primary ? G.off : G.primary;
   if (fill !== undefined) g.roundRect(r, R.md, { fill });
@@ -350,7 +350,7 @@ export function button(
 
 export function toggle(g: GlyphRaster, x: number, y: number, on: boolean, width = 32): void {
   const h = width * 0.56;
-  if (isOutline()) {
+  if (isOutline(g)) {
     g.roundRect({ x, y: y - h / 2, width, height: h }, h / 2, { stroke: on ? G.max : G.border, width: 1 });
     g.circle(on ? x + width - h / 2 : x + h / 2, y, h / 2 - 3, { fill: on ? G.max : G.disabled });
   } else {
@@ -362,7 +362,7 @@ export function toggle(g: GlyphRaster, x: number, y: number, on: boolean, width 
 /** Transient message strip. */
 export function toast(g: GlyphRaster, r: Rect, text: string, opts: { icon?: GlyphIconName; alpha?: number } = {}): void {
   g.scoped((layer) => {
-    if (!isOutline()) layer.roundRect(r, R.pill, { fill: G.raised, alpha: opts.alpha ?? 1 });
+    if (!isOutline(g)) layer.roundRect(r, R.pill, { fill: G.raised, alpha: opts.alpha ?? 1 });
     layer.roundRect(r, R.pill, { stroke: G.border, width: 1, alpha: opts.alpha ?? 1 });
     let x = r.x + 16;
     if (opts.icon) { icon(layer, opts.icon, x + 7, centerY(r), 14, G.max); x += 24; }
@@ -450,8 +450,8 @@ export function attitudeIndicator(
     layer.rotateAbout(cx, cy, (-roll * Math.PI) / 180);
     const horizonY = cy + pitch * 2;
     const ground = { x: cx - radius * 2, y: horizonY, width: radius * 4, height: radius * 2 };
-    if (!isOutline()) layer.rect(ground, { fill: G.sunken });
-    layer.hatch(ground, 5, isOutline() ? G.hairline : G.border);
+    if (!isOutline(g)) layer.rect(ground, { fill: G.sunken });
+    layer.hatch(ground, 5, isOutline(g) ? G.hairline : G.border);
     layer.hline(cx - radius * 1.4, cx + radius * 1.4, horizonY, G.max, 1.5);
     for (const step of [-20, -10, 10, 20]) {
       const y = horizonY - step * 2;
@@ -488,7 +488,7 @@ export function windIndicator(
 /** Speed roundel — the European sign, which reads instantly. */
 export function speedLimit(g: GlyphRaster, cx: number, cy: number, radius: number, limit: number, over = false): void {
   if (over) g.circle(cx, cy, radius + 4, { stroke: G.strong, width: 1.5, dash: [3, 4] });
-  if (isOutline()) {
+  if (isOutline(g)) {
     g.circle(cx, cy, radius - 1.75, { stroke: G.max, width: 3.5 });
   } else {
     g.circle(cx, cy, radius, { fill: G.max });

@@ -58,7 +58,7 @@ export const primitivesScreen: Screen = {
 
     label(g, shapes[3], "ARCS");
     const cx = shapes[3].x + 30;
-    const cy = shapes[3].y + 32;
+    const cy = shapes[3].y + 35;
     g.ring(cx, cy, 20, 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 1.3, { fill: G.strong });
     g.arc(cx, cy, 24, 0, Math.PI * 2, { stroke: G.hairline, width: 1 });
     g.sector(shapes[3].x + 78, cy, 20, -Math.PI / 2, -Math.PI / 2 + Math.PI * 0.7, { fill: G.raised, stroke: G.border });
@@ -91,9 +91,9 @@ export const primitivesScreen: Screen = {
 
     label(g, typeBox, "TYPE SCALE");
     g.text("46", typeBox.x, typeBox.y + 16, { ...T.display, size: 40 }, G.max, "left", "top");
-    g.text("Headline", typeBox.x + 52, typeBox.y + 18, T.headline, G.primary, "left", "top");
-    g.text("Body text at fourteen", typeBox.x + 52, typeBox.y + 40, T.body, G.secondary, "left", "top");
-    g.text("CAPTION · LABEL · MICRO", typeBox.x + 52, typeBox.y + 56, T.micro, G.tertiary, "left", "top");
+    g.text("Headline", typeBox.x + 60, typeBox.y + 18, T.headline, G.primary, "left", "top");
+    g.text("Body text at fourteen", typeBox.x + 60, typeBox.y + 40, T.body, G.secondary, "left", "top");
+    g.text("CAPTION · LABEL · MICRO", typeBox.x + 60, typeBox.y + 56, T.micro, G.tertiary, "left", "top");
 
     label(g, iconBox, `ICONS · ${iconNames().length} IN THE SET`);
     const names = iconNames().slice(0, 44);

@@ -2,16 +2,22 @@
 <html><head><meta charset="utf-8"><style>body{margin:0;background:#000}</style></head>
 <body><canvas id="sheet"></canvas>
 <script type="module">
-import { GlyphFrame, grayToRgba, screen as SCREEN, safe as SAFE } from "/src/glyph/index.ts";
+import { GlyphFrame, grayToRgba, loadFontSet, screen as SCREEN, safe as SAFE } from "/src/glyph/index.ts";
 import { screens } from "/src/apps/index.ts";
 
 // Fixed timestamps keep the snapshots deterministic despite animated screens.
+// The bitmap atlas keeps them deterministic despite the *machine* — without it
+// these PNGs are a picture of one laptop's font stack.
 const CLOCKS = [4200, 4200, 5000, 3000, 3000, 2000];
+let fontSet = null;
+try { fontSet = await loadFontSet("/fonts/inter.json"); } catch { /* falls back to canvas text */ }
+window.__font = fontSet ? fontSet.keys().length : 0;
 const COLS = 2, PAD = 26, GAP = 22, LABEL = 26;
 
 const shots = {};
 const rendered = screens.map((screen, i) => {
   const frame = new GlyphFrame({ supersample: 3 });
+  if (fontSet) frame.raster.useFont(fontSet);
   frame.raster.clear(0);
   screen.render({
     g: frame.raster, now: CLOCKS[i] ?? 3000,

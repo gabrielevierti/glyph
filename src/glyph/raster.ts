@@ -1,8 +1,10 @@
 import { clampGray, ditherGray, grayToCss, grayToRgba } from "./gray.js";
+import type { GlyphFont, GlyphFontSet } from "./font.js";
 import { GlyphPath } from "./path.js";
-import { fontString, leadingOf, prepare, truncate, wrapClamped } from "./text.js";
+import { cachedMeasurer, fontString, leadingOf, prepare, truncate, wrapClamped, type Measurer } from "./text.js";
 import type {
-  Corners, Gray, HAlign, Paint, Point, Rect, RasterOptions, TextStyle, VAlign
+  CanvasFactory, Corners, Gray, HAlign, Paint, Point, Rect, RasterOptions,
+  SurfaceStyle, TextStyle, VAlign
 } from "./types.js";
 
 const DEFAULT_PAINT: Paint = { width: 1, cap: "round", join: "round", alpha: 1 };
@@ -10,6 +12,28 @@ const DEFAULT_PAINT: Paint = { width: 1, cap: "round", join: "round", alpha: 1 }
 function corners(c: Corners): [number, number, number, number] {
   return typeof c === "number" ? [c, c, c, c] : c;
 }
+
+/** One place a glyph was drawn too close in level to what sits behind it. */
+export interface ContrastWarning {
+  text: string;
+  /** Level the text was drawn at. */
+  gray: Gray;
+  /** Level already on the surface underneath it. */
+  background: Gray;
+  delta: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * How text is rasterized.
+ *
+ * `auto`   — a bitmap face when the installed atlas has one, canvas otherwise.
+ * `bitmap` — bitmap only; a missing face throws. Use this in CI, where the
+ *            whole point is that the host's fonts cannot influence the output.
+ * `canvas` — always the host. Used when generating an atlas.
+ */
+export type FontMode = "auto" | "bitmap" | "canvas";
 
 /**
  * The drawing surface.
@@ -24,14 +48,67 @@ export class GlyphRaster {
   readonly height: number;
   readonly scale: number;
   readonly ctx: CanvasRenderingContext2D;
+
+  /**
+   * How panels and tracks draw themselves. Lives here rather than in a module
+   * global, so a layer, a screenshot pass and the live app can disagree — and
+   * so two tests running at once cannot corrupt each other's setting.
+   */
+  surface: SurfaceStyle;
+
+  /** Global output scale, 0..1, applied once at resolve. */
+  brightness: number;
+
+  /** Text rasterization policy. See `FontMode`. */
+  fontMode: FontMode = "auto";
+
   private readonly canvas: HTMLCanvasElement;
-  private readonly makeCanvas: (w: number, h: number) => HTMLCanvasElement;
+  private readonly makeCanvas: CanvasFactory;
   private scratch: HTMLCanvasElement | null = null;
+  private fontSet: GlyphFontSet | null = null;
+  private lintMinDelta = 0;
+  private lintRecords: ContrastWarning[] | null = null;
+  private styleObserver: ((style: TextStyle) => void) | null = null;
+
+  /**
+   * Uncached measurement. Kept separate so `useFont` can rebuild the cache
+   * around it without every caller having to re-read `g.measure`.
+   */
+  private rawMeasure = (text: string, style: TextStyle): number => {
+    this.styleObserver?.(style);
+    const content = prepare(text, style);
+    const font = this.faceFor(style);
+    if (font) return font.measure(content, style.tracking ?? 0);
+
+    this.ctx.save();
+    this.ctx.font = fontString(style);
+    let width: number;
+    if (style.tracking) {
+      // Measure the way we draw: per character. Measuring the whole string and
+      // then drawing it glyph by glyph is how centred tracked labels drift.
+      width = 0;
+      let count = 0;
+      for (const ch of content) { width += this.ctx.measureText(ch).width; count++; }
+      if (count > 1) width += style.tracking * (count - 1);
+    } else {
+      width = this.ctx.measureText(content).width;
+    }
+    this.ctx.restore();
+    return width;
+  };
+
+  /**
+   * Width of a string in logical pixels. Memoized — wrapping, truncation and
+   * `fitStyle` all re-measure the same unchanged labels on every paint.
+   */
+  measure: Measurer = cachedMeasurer(this.rawMeasure);
 
   constructor(options: RasterOptions = {}) {
     this.width = options.width ?? 576;
     this.height = options.height ?? 288;
     this.scale = options.supersample ?? 2;
+    this.surface = options.surface ?? "outline";
+    this.brightness = options.brightness ?? 1;
     this.makeCanvas = options.createCanvas ?? ((w, h) => {
       const c = document.createElement("canvas");
       c.width = w; c.height = h;
@@ -46,7 +123,108 @@ export class GlyphRaster {
     if (!ctx) throw new Error("Glyph: Canvas 2D is unavailable.");
     this.ctx = ctx as CanvasRenderingContext2D;
     this.ctx.scale(this.scale, this.scale);
+
+    if (options.lint) {
+      this.enableContrastLint(typeof options.lint === "object" ? options.lint.minDelta : undefined);
+    }
     this.clear(options.background ?? 0);
+  }
+
+  // ── fonts ────────────────────────────────────────────────────────────────
+
+  /**
+   * Install a bitmap font set. Metrics and coverage then come from the atlas
+   * rather than from the host, which is what makes a committed snapshot mean
+   * anything on a machine other than the one that made it.
+   */
+  useFont(set: GlyphFontSet | null, mode: FontMode = set ? "auto" : "canvas"): this {
+    this.fontSet = set;
+    this.fontMode = mode;
+    this.measure = cachedMeasurer(this.rawMeasure);
+    return this;
+  }
+
+  get font(): GlyphFontSet | null { return this.fontSet; }
+
+  /**
+   * Report every text style this raster is asked to draw or measure.
+   *
+   * The atlas builder uses this to discover which faces an app actually needs,
+   * rather than making you keep a list in sync by hand — screens use one-off
+   * sizes (`{ ...T.numeral, size: 13 }`) constantly, and a face that is missing
+   * from the atlas is a face that silently falls back to the host.
+   */
+  observeStyles(cb: ((style: TextStyle) => void) | null): this {
+    this.styleObserver = cb;
+    this.measure = cachedMeasurer(this.rawMeasure);
+    return this;
+  }
+
+  private faceFor(style: TextStyle): GlyphFont | null {
+    if (this.fontMode === "canvas") return null;
+    const face = this.fontSet?.find(style) ?? null;
+    if (!face && this.fontMode === "bitmap") {
+      throw new Error(
+        `Glyph: no bitmap face for ${fontString(style)} and fontMode is "bitmap". ` +
+        "Add the size to tools/build-font.mjs and re-run `npm run font`."
+      );
+    }
+    return face;
+  }
+
+  // ── contrast lint ────────────────────────────────────────────────────────
+
+  /**
+   * Record any glyph drawn within `minDelta` levels of its background.
+   *
+   * Ink says how much of the world the UI is hiding. Contrast says whether what
+   * it hides it with can be read. Neither shows up in a screenshot on a bright
+   * monitor, which is exactly why both are assertions rather than eyeballing.
+   */
+  enableContrastLint(minDelta = 4): ContrastWarning[] {
+    this.lintMinDelta = minDelta;
+    this.lintRecords = [];
+    return this.lintRecords;
+  }
+
+  get contrastWarnings(): ContrastWarning[] { return this.lintRecords ?? []; }
+
+  clearContrastWarnings(): void { if (this.lintRecords) this.lintRecords.length = 0; }
+
+  /** Level currently on the surface at a logical point. */
+  sample(x: number, y: number): Gray {
+    const dx = Math.max(0, Math.min(this.canvas.width - 1, Math.round(x * this.scale)));
+    const dy = Math.max(0, Math.min(this.canvas.height - 1, Math.round(y * this.scale)));
+    return clampGray(this.ctx.getImageData(dx, dy, 1, 1).data[0] / 17);
+  }
+
+  /**
+   * The darkest level in a small neighbourhood — the backdrop a glyph will
+   * actually sit against.
+   *
+   * A single sample is not enough: land it on a stroke of text drawn a moment
+   * ago and the lint reports a clash with something the eye reads as a separate
+   * word. The minimum over a span finds the surface showing through the gaps,
+   * which is the thing the new glyph has to be distinguishable from.
+   */
+  private backdrop(x: number, y: number, spread = 4): Gray {
+    let lowest = 15;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -spread; dx <= spread; dx += spread) {
+        const level = this.sample(x + dx, y + dy * spread);
+        if (level < lowest) lowest = level;
+      }
+    }
+    return lowest;
+  }
+
+  private lintText(value: string, x: number, y: number, gray: Gray): void {
+    if (!this.lintRecords) return;
+    const background = this.backdrop(x, y);
+    const delta = Math.abs(gray - background);
+    if (delta < this.lintMinDelta) {
+      this.lintRecords.push({ text: value, gray, background, delta, x, y });
+    }
   }
 
   // ── state ────────────────────────────────────────────────────────────────
@@ -453,11 +631,18 @@ export class GlyphRaster {
     });
   }
 
-  /** An offscreen raster with the same supersampling — for layers and masks. */
+  /**
+   * An offscreen raster with the same supersampling — for layers and masks.
+   * Inherits surface style, brightness and the installed font, so a layer draws
+   * the same way the surface that produced it does.
+   */
   layer(width = this.width, height = this.height): GlyphRaster {
-    return new GlyphRaster({
-      width, height, supersample: this.scale, background: 0, createCanvas: this.makeCanvas
+    const child = new GlyphRaster({
+      width, height, supersample: this.scale, background: 0,
+      createCanvas: this.makeCanvas, surface: this.surface, brightness: this.brightness
     });
+    if (this.fontSet) child.useFont(this.fontSet, this.fontMode);
+    return child;
   }
 
   private getScratch(w: number, h: number): HTMLCanvasElement {
@@ -471,19 +656,21 @@ export class GlyphRaster {
 
   get element(): HTMLCanvasElement { return this.canvas; }
 
-  // ── text ─────────────────────────────────────────────────────────────────
+  /** Release cached canvases. The raster is unusable afterwards. */
+  dispose(): void {
+    this.scratch = null;
+    this.fontSet = null;
+    this.canvas.width = 0;
+    this.canvas.height = 0;
+  }
 
-  measure = (text: string, style: TextStyle = {}): number => {
-    this.ctx.save();
-    this.ctx.font = fontString(style);
-    let w = this.ctx.measureText(prepare(text, style)).width;
-    this.ctx.restore();
-    if (style.tracking) w += style.tracking * Math.max(0, text.length - 1);
-    return w;
-  };
+  // ── text ─────────────────────────────────────────────────────────────────
 
   /** Cap height of the style, useful for optical vertical centring. */
   capHeight(style: TextStyle = {}): number {
+    this.styleObserver?.(style);
+    const font = this.faceFor(style);
+    if (font) return font.capHeight;
     this.ctx.save();
     this.ctx.font = fontString(style);
     const m = this.ctx.measureText("H");
@@ -500,7 +687,14 @@ export class GlyphRaster {
     style: TextStyle = {}, gray: Gray = 15,
     hAlign: HAlign = "left", vAlign: VAlign = "top"
   ): this {
+    this.styleObserver?.(style);
     const content = prepare(value, style);
+    if (content === "") return this;
+    if (this.lintRecords) this.lintText(content, x, y, gray);
+
+    const font = this.faceFor(style);
+    if (font) return this.drawBitmapText(font, content, x, y, style, gray, hAlign, vAlign);
+
     return this.scoped(() => {
       this.ctx.fillStyle = grayToCss(gray);
       this.ctx.font = fontString(style);
@@ -508,6 +702,8 @@ export class GlyphRaster {
         vAlign === "top" ? "top" : vAlign === "bottom" ? "bottom" : "middle";
       if (style.tracking) {
         // Manual tracking: canvas letterSpacing is not universally available.
+        // `measure` sums per-character advances for exactly this reason, so a
+        // tracked string lands where it was measured to land.
         const total = this.measure(content, style);
         let cursor = hAlign === "left" ? x : hAlign === "right" ? x - total : x - total / 2;
         this.ctx.textAlign = "left";
@@ -518,6 +714,44 @@ export class GlyphRaster {
       } else {
         this.ctx.textAlign = hAlign === "center" ? "center" : hAlign === "right" ? "right" : "left";
         this.ctx.fillText(content, x, y);
+      }
+    });
+  }
+
+  /**
+   * Bitmap text.
+   *
+   * Glyphs are blitted from a pre-tinted atlas at whole logical pixels, so the
+   * coverage committed to the repository is the coverage on the glasses — no
+   * host font stack, no subpixel positioning, no drift between machines.
+   */
+  private drawBitmapText(
+    font: GlyphFont, content: string, x: number, y: number,
+    style: TextStyle, gray: Gray, hAlign: HAlign, vAlign: VAlign
+  ): this {
+    const tracking = style.tracking ?? 0;
+    const total = font.measure(content, tracking);
+    const lineHeight = style.leading ?? font.lineHeight;
+
+    const startX = hAlign === "left" ? x : hAlign === "right" ? x - total : x - total / 2;
+    const topY = vAlign === "top" ? y : vAlign === "bottom" ? y - lineHeight : y - lineHeight / 2;
+    const baseline = topY + font.ascent;
+    const atlas = font.tintedAtlas(clampGray(gray), this.makeCanvas);
+
+    return this.scoped(() => {
+      this.ctx.imageSmoothingEnabled = false;
+      let cursor = startX;
+      for (const ch of content) {
+        const box = font.face.glyphs[ch];
+        if (!box) { cursor += font.face.fallbackAdvance + tracking; continue; }
+        const [sx, sy, w, h, left, top, advance] = box;
+        if (w > 0 && h > 0) {
+          this.ctx.drawImage(
+            atlas, sx, sy, w, h,
+            Math.round(cursor + left), Math.round(baseline - top), w, h
+          );
+        }
+        cursor += advance + tracking;
       }
     });
   }
@@ -557,6 +791,14 @@ export class GlyphRaster {
   /**
    * Resolve the supersampled canvas to one byte per pixel at 16 levels.
    * This is the only place the device pixel grid exists.
+   *
+   * The average is a straight mean of the encoded bytes, deliberately. Every
+   * value on this canvas is `level * 17` — a linear encoding of a level, not an
+   * sRGB colour — and the panel's output is linear in level, so the arithmetic
+   * mean *is* the physically correct one. "Fixing" this with a gamma curve is a
+   * plausible-sounding way to make every antialiased edge slightly wrong.
+   *
+   * Only the red channel is read: everything drawn here is gray by construction.
    */
   toLevels(out?: Uint8Array): Uint8Array {
     const s = this.scale;
@@ -566,16 +808,16 @@ export class GlyphRaster {
       : new Uint8Array(this.width * this.height);
     const samples = s * s;
     const rowStride = this.width * s * 4;
+    const gain = this.brightness / (samples * 17);
     for (let y = 0; y < this.height; y++) {
+      const dstRow = y * this.width;
       for (let x = 0; x < this.width; x++) {
         let sum = 0;
         for (let sy = 0; sy < s; sy++) {
           let i = (y * s + sy) * rowStride + x * s * 4;
-          for (let sx = 0; sx < s; sx++, i += 4) {
-            sum += 0.299 * src[i] + 0.587 * src[i + 1] + 0.114 * src[i + 2];
-          }
+          for (let sx = 0; sx < s; sx++, i += 4) sum += src[i];
         }
-        dst[y * this.width + x] = clampGray(sum / samples / 17);
+        dst[dstRow + x] = clampGray(sum * gain);
       }
     }
     return dst;

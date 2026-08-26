@@ -1,4 +1,4 @@
-import type { Gray, TextStyle } from "./types.js";
+import type { Gray, SurfaceStyled, TextStyle } from "./types.js";
 
 /**
  * The G2 renders 16 levels of a single green phosphor-like channel.
@@ -57,27 +57,27 @@ export const screen = { width: 576, height: 288 };
 export const safe = { x: 14, y: 12, width: 548, height: 264 };
 
 /**
- * How surfaces are drawn.
+ * Is this surface drawn in outline mode?
  *
- * The G2 is see-through: every lit pixel is a pixel of the world you cannot
- * see through. A filled card that would read as "elevated" on a phone reads as
- * "smudge on the lens" on a waveguide, so `outline` is the default — panels are
- * defined by a hairline border and the content inside them, with fills reserved
- * for small elements that genuinely need to pop.
- *
- * `filled` is kept for the browser preview and for screenshots, where a solid
- * surface photographs better and nothing is being occluded.
+ * Takes the thing being drawn on rather than reading a module global, so an
+ * offscreen layer, a screenshot pass and the live app can each have their own
+ * answer at the same time.
  */
-export type SurfaceStyle = "outline" | "filled";
-
-let surfaceStyle: SurfaceStyle = "outline";
-
-export function setSurfaceStyle(style: SurfaceStyle): void { surfaceStyle = style; }
-export function getSurfaceStyle(): SurfaceStyle { return surfaceStyle; }
-export function isOutline(): boolean { return surfaceStyle === "outline"; }
+export function isOutline(target: SurfaceStyled): boolean {
+  return target.surface === "outline";
+}
 
 /** Ink budget: roughly what fraction of the surface a screen should light up. */
 export const inkBudget = 0.18;
 
-export const theme = { gray, type, space, radius, screen, safe };
+/**
+ * Minimum level separation between a glyph and what sits behind it.
+ *
+ * Ink measures how much of the world the UI hides. Contrast measures whether
+ * what it hides it with can actually be read. Both are cheap to assert and
+ * neither is visible in a screenshot taken on a bright monitor.
+ */
+export const minContrast = 4;
+
+export const theme = { gray, type, space, radius, screen, safe, inkBudget, minContrast };
 export type Theme = typeof theme;

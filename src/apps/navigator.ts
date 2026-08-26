@@ -84,7 +84,7 @@ export const navigatorScreen: Screen = {
 
     panel(g, etaBox, { radius: R.lg, stroke: G.strong });
     g.text("15:47", centerX(etaBox), etaBox.y + 18, T.numeralLg, G.max, "center", "middle");
-    g.text("ARRIVAL · 24 MIN", centerX(etaBox), bottom(etaBox) - 13, T.micro, G.tertiary, "center", "middle");
+    g.text("ETA · 24 MIN", centerX(etaBox), bottom(etaBox) - 13, T.micro, G.tertiary, "center", "middle");
 
     // ── Route progress ────────────────────────────────────────────────────
     const [label, bar, distance] = row(strip, [{ size: 92 }, { size: grow(1) }, { size: 92 }], { gap: S.md });

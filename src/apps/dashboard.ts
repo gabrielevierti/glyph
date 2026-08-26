@@ -14,11 +14,11 @@ import type { RenderContext, Screen } from "../glyph/index.js";
  */
 
 const notifications = [
-  { icon: "message" as const, title: "Giada", subtitle: "sto arrivando, 10 min", value: "now" },
-  { icon: "calendar" as const, title: "Turno scorte", subtitle: "Piazza Duomo · briefing", value: "16:00" },
+  { icon: "message" as const, title: "Mark", subtitle: "i'm coming, 10 eta", value: "now" },
+  { icon: "calendar" as const, title: "Meeting", subtitle: "Piazza Duomo · briefing", value: "16:00" },
   { icon: "mail" as const, title: "Even Realities", subtitle: "Re: Glyph framework", value: "12:04" },
-  { icon: "bell" as const, title: "Bucato", subtitle: "ciclo terminato", value: "11:30" },
-  { icon: "phone" as const, title: "Chiamata persa", subtitle: "+39 02 ···· 41", value: "10:58" }
+  { icon: "bell" as const, title: "Laundry", subtitle: "cycle terminated", value: "11:30" },
+  { icon: "phone" as const, title: "Missed call", subtitle: "+39 02 ···· 41", value: "10:58" }
 ];
 
 const cursor = new Cursor(notifications.length, 3);
@@ -37,7 +37,7 @@ export const dashboardScreen: Screen = {
     const seconds = Math.floor(now / 1000) % 60;
 
     const [bar, body, footer] = column(safe, [{ size: 15 }, { size: grow(1) }, { size: 18 }], { gap: S.sm });
-    statusBar(g, bar, { title: "Milano", battery: 0.72, signal: 4, icons: ["bluetooth"] });
+    statusBar(g, bar, { title: "Milan", battery: 0.72, signal: 4, icons: ["bluetooth"] });
 
     const [leftCol, rightCol] = row(body, [{ size: 262 }, { size: grow(1) }], { gap: S.md });
     const [clockBox, weatherBox, activityBox] =
@@ -48,20 +48,20 @@ export const dashboardScreen: Screen = {
     g.text("14:32", clockBox.x + 18, centerY(clockBox) - 6, { ...T.hero, size: 62 }, G.max, "left", "middle");
     const timeWidth = g.measure("14:32", { ...T.hero, size: 62 });
     g.text(String(seconds).padStart(2, "0"), clockBox.x + 22 + timeWidth, centerY(clockBox) - 16, T.numeral, G.tertiary, "left", "middle");
-    g.text("LUNEDÌ 24 AGOSTO", clockBox.x + 20, bottom(clockBox) - 14, T.label, G.secondary, "left", "middle");
+    g.text("MONDAY 24 AUGUST", clockBox.x + 20, bottom(clockBox) - 14, T.label, G.secondary, "left", "middle");
 
     // ── Weather: one line, because that is all it deserves here ───────────
     panel(g, weatherBox, { radius: R.lg });
     icon(g, "sun", weatherBox.x + 22, centerY(weatherBox), 22, G.max);
     g.text("29°", weatherBox.x + 40, centerY(weatherBox), T.numeralLg, G.max, "left", "middle");
-    g.text("Sereno", weatherBox.x + 84, centerY(weatherBox), T.caption, G.tertiary, "left", "middle");
+    g.text("Sunny", weatherBox.x + 84, centerY(weatherBox), T.caption, G.tertiary, "left", "middle");
     g.text("31° / 22°", right(weatherBox) - 14, centerY(weatherBox), { ...T.numeral, size: 12 }, G.secondary, "right", "middle");
     sparkline(g, { x: weatherBox.x + 138, y: weatherBox.y + 12, width: 50, height: 20 },
       [24, 25, 27, 29, 31, 30, 28, 26, 24], { gray: G.border, smooth: true, dot: false });
 
     // ── Activity: three rings, each with its own readout ──────────────────
     panel(g, activityBox, { radius: R.lg });
-    const goals: Array<[string, string, number]> = [["PASSI", "8 420", 0.68], ["KCAL", "612", 0.44], ["PIANI", "14", 0.9]];
+    const goals: Array<[string, string, number]> = [["STEPS", "8 420", 0.68], ["KCAL", "612", 0.44], ["FLOORS", "14", 0.9]];
     const cells = row(inset(activityBox, S.sm), goals.map(() => ({ size: grow(1) })), { gap: S.xs });
     goals.forEach(([goalLabel, value, progress], i) => {
       const cell = cells[i];
@@ -71,7 +71,7 @@ export const dashboardScreen: Screen = {
     });
 
     // ── Notifications ─────────────────────────────────────────────────────
-    const listInner = section(g, rightCol, "Notifiche", { accessory: `${notifications.length}` });
+    const listInner = section(g, rightCol, "Notifications", { accessory: `${notifications.length}` });
     const rowHeight = 40;
     cursor.window().forEach((index, slot) => {
       const item = notifications[index];
@@ -94,7 +94,7 @@ export const dashboardScreen: Screen = {
     }
 
     // ── Footer ────────────────────────────────────────────────────────────
-    tag(g, footer.x, centerY(footer), "SCROLL PER NOTIFICHE");
+    tag(g, footer.x, centerY(footer), "SCROLL FOR NOTIFICATIONS");
     pageDots(g, centerX(footer), centerY(footer), app.screens.length, app.screenIndex);
     g.text("TAP → NEXT", right(footer), centerY(footer), T.micro, G.tertiary, "right", "middle");
   }
