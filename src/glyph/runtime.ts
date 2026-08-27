@@ -1,8 +1,9 @@
 import {
-  CreateStartUpPageContainer, ImageRawDataUpdate, ImageRawDataUpdateResult,
-  StartUpPageCreateResult, waitForEvenAppBridge,
-  type EvenAppBridge, type TextContainerProperty
+  CreateStartUpPageContainer, ImageContainerProperty, ImageRawDataUpdate,
+  ImageRawDataUpdateResult, StartUpPageCreateResult, TextContainerProperty,
+  waitForEvenAppBridge, type EvenAppBridge
 } from "@evenrealities/even_hub_sdk";
+
 import { MAX_IMAGE_CONTAINERS, TileDiff, TILE_QUADRANTS, validateLayout } from "./frame.js";
 import { unpackGray4 } from "./gray.js";
 import type { CanvasFactory, Frame, Tile, TileLayout } from "./types.js";
@@ -149,7 +150,7 @@ export class GlyphRuntime {
       throw new Error(message);
     }
 
-    const images = this.tileLayout.tiles.map((t) => ({
+    const images = this.tileLayout.tiles.map((t) => new ImageContainerProperty({
       xPosition: t.x,
       yPosition: t.y,
       width: t.width,
@@ -159,13 +160,13 @@ export class GlyphRuntime {
       zOrderIndex: t.zOrder
     }));
 
-    const maxZ = images.reduce((max, image) => Math.max(max, image.zOrderIndex), 0);
-    const eventLayer: TextContainerProperty = {
+    const maxZ = images.reduce((max, image) => Math.max(max, image.zOrderIndex ?? 0), 0);
+    const eventLayer = new TextContainerProperty({
       xPosition: 0, yPosition: 0, width: 576, height: 288,
       borderWidth: 0, paddingLength: 0,
       containerID: 1, containerName: "events",
       content: "", isEventCapture: 1, zOrderIndex: maxZ + 1
-    };
+    });
 
     const result = await this.bridge.createStartUpPageContainer(
       new CreateStartUpPageContainer({
