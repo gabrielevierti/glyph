@@ -2,6 +2,9 @@ Glyph exists so that G2 apps can look like designed interfaces instead of collec
 
 ![Six screens built with Glyph](img/splash.png)
 
+# Made with Glyph
+- [Ocuclaw](https://ocuclaw.com/liveui)
+
 ```bash
 npm install @gabrielevierti/glyph
 ```
