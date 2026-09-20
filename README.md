@@ -2,12 +2,8 @@ Glyph exists so that G2 apps can look like designed interfaces instead of collec
 
 ![Six screens built with Glyph](img/splash.png)
 
-# Made with Glyph
+## Made with Glyph
 - [Ocuclaw](https://ocuclaw.com/liveui)
-
-```bash
-npm install @gabrielevierti/glyph
-```
 
 The Even SDK is an *optional* peer dependency. Only `@gabrielevierti/glyph/runtime` touches it, so rendering to a canvas, a test, or a PNG needs nothing installed and no hardware attached.
 
