@@ -1,13 +1,18 @@
-sGlyph exists so that G2 apps can look like designed interfaces instead of collections of text containers and hand-placed polygons. You draw a complete screen into a 576×288 framebuffer using real primitives — paths, gradients, clipping, transforms, measured text — and Glyph slices it into image tiles and ships only the ones that changed.
+# Glyph
 
-![Six screens built with Glyph](img/splash.png)
+Glyph exists so that G2 apps can look like designed interfaces instead of collections of text containers and hand-placed polygons. 
+You draw a complete screen into a 576×288 framebuffer using real primitives — paths, gradients, clipping, transforms, measured text — Glyph then slices it into image tiles and ships only the ones that changed.
+
+The Even SDK is an *optional* peer dependency - Only `@gabrielevierti/glyph/runtime` touches it, so rendering to a canvas, a test, or a PNG needs nothing installed and no hardware attached.
 
 ## Made with Glyph
-- [Ocuclaw](https://ocuclaw.com)
-- [TideView](https://github.com/gabrielevierti/tideview)
-- [G2ModelViewer](https://github.com/gabrielevierti/g2modelviewer)
+- [OcuClaw](https://ocuclaw.com)
+<img width="1227" height="362" alt="Screenshot 2026-09-21 at 18 34 54" src="https://github.com/user-attachments/assets/188608cb-be0c-4988-8f04-92e1c6b35580" />
 
-The Even SDK is an *optional* peer dependency. Only `@gabrielevierti/glyph/runtime` touches it, so rendering to a canvas, a test, or a PNG needs nothing installed and no hardware attached.
+- [TideView](https://github.com/gabrielevierti/tideview)
+<img width="819" height="342" alt="Screenshot 2026-09-21 at 18 35 41" src="https://github.com/user-attachments/assets/3cd82384-441e-49f5-b28f-308f4219c459" />
+
+- [G2ModelViewer](https://github.com/gabrielevierti/g2modelviewer)
 
 ## Why a framebuffer
 
