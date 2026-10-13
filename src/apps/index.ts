@@ -4,6 +4,7 @@ import { dashboardScreen } from "./dashboard.js";
 import { navigatorScreen } from "./navigator.js";
 import { primitivesScreen } from "./primitives.js";
 import { seaStateScreen } from "./seastate.js";
+import { showcaseControls, showcaseDashboard, showcaseStates } from "./showcase.js";
 import type { Screen } from "../glyph/index.js";
 
 /**
@@ -20,5 +21,8 @@ export const screens: Screen[] = [
   dashboardScreen,
   primitivesScreen,
   chartsScreen,
-  componentsScreen
+  componentsScreen,
+  showcaseControls,
+  showcaseDashboard,
+  showcaseStates
 ];

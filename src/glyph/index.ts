@@ -33,3 +33,5 @@ export * from "./components.js";
 export * from "./frame.js";
 export * from "./autolayout.js";
 export * from "./app.js";
+
+export * from "./extended.js";

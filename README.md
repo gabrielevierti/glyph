@@ -340,3 +340,28 @@ npm run pack     # .ehpk for the Even Hub developer portal
 ## License
 
 MIT
+
+
+## Extended UI primitives (experimental)
+
+`src/glyph/extended.ts` adds eleven low-overdraw primitives: `chip`, `compactToggle`, `checkBox`, `radioButton`, `sliderTrack`, `stepper`, `compactTabs`, `notificationToast`, `spinner`, `skeleton`, and `countBadge`. All use the existing `GlyphRaster` interface and grayscale theme. The existing public component APIs remain unchanged.
+
+```ts
+import { chip, compactToggle, spinner, stepper } from '@gabrielevierti/glyph';
+
+chip(g, { x: 20, y: 20, width: 70, height: 22 }, 'CONNECTED');
+compactToggle(g, { x: 100, y: 20, width: 36, height: 18 }, true);
+spinner(g, { x: 150, y: 20, width: 20, height: 20 }, 0.4);
+stepper(g, { x: 20, y: 55, width: 160, height: 20 }, 4, 1);
+```
+
+This is a source-level enhancement; benchmark performance on target hardware before making speed claims.
+
+
+## Enhanced UI kit showcase
+
+The preview now includes **UI Kit · Controls**, **UI Kit · Dashboard**, and **UI Kit · States**. Run `npm install && npm run dev`, then navigate between screens with the preview arrows. The new screens demonstrate chips, toggles, checkboxes, radio buttons, sliders, steppers, tabs, toast notifications, spinners, skeletons, and unread badges in the actual 576×288 Gray4 framebuffer. Use the **Surface** selector to compare outline and filled modes.
+
+The preview Gray4→RGBA conversion now uses a precomputed lookup table. Run `npm run test:gray-fast` (Node 22+) to verify conversion and Gray4 packing. This is a micro-optimization of preview rendering, **not a measured improvement in G2 wireless throughput**.
+
+For hardware performance, use `npm run bench` with a paired device.

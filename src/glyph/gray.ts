@@ -86,10 +86,12 @@ export function unpackGray4(packed: Uint8Array, width: number, height: number): 
 }
 
 /** Expand a level buffer to RGBA for canvas display. */
+const GRAY_RGBA_LUT = Uint8Array.from({ length: 16 }, (_, i) => i * 17);
+
 export function grayToRgba(pixels: Uint8Array): Uint8ClampedArray {
   const out = new Uint8ClampedArray(pixels.length * 4);
   for (let i = 0; i < pixels.length; i++) {
-    const v = grayToByte(pixels[i]);
+    const v = GRAY_RGBA_LUT[pixels[i] & 15];
     const j = i * 4;
     out[j] = v; out[j + 1] = v; out[j + 2] = v; out[j + 3] = 255;
   }

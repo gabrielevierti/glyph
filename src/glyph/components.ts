@@ -203,7 +203,7 @@ export function progressBar(
   g: GlyphRaster, r: Rect, value: number,
   opts: { fill?: Gray; track?: Gray; radius?: number; ticks?: number } = {}
 ): void {
-  const v = clamp(value, 0, 1);
+  const v = Number.isFinite(value) ? clamp(value, 0, 1) : 0;
   const rad = opts.radius ?? r.height / 2;
   if (opts.track !== undefined) g.roundRect(r, rad, { fill: opts.track });
   else if (isOutline(g)) g.roundRect(r, rad, { stroke: G.hairline, width: 1 });
@@ -219,8 +219,11 @@ export function segmentedBar(
   g: GlyphRaster, r: Rect, segments: number, filled: number,
   opts: { fill?: Gray; track?: Gray; gap?: number } = {}
 ): void {
+  if (!Number.isFinite(segments) || segments <= 0) return;
+  segments = Math.min(128, Math.floor(segments));
+  filled = Number.isFinite(filled) ? Math.max(0, Math.min(segments, filled)) : 0;
   const gap = opts.gap ?? 3;
-  const w = (r.width - gap * (segments - 1)) / segments;
+  const w = Math.max(0, (r.width - gap * (segments - 1)) / segments);
   for (let i = 0; i < segments; i++) {
     const cell = { x: r.x + i * (w + gap), y: r.y, width: w, height: r.height };
     const rad = Math.min(2, r.height / 2);
