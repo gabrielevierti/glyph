@@ -1,24 +1,68 @@
 # Glyph
 
-Glyph exists so that G2 apps can look like designed interfaces instead of collections of text containers and hand-placed polygons. 
-You draw a complete screen into a 576×288 framebuffer using real primitives — paths, gradients, clipping, transforms, measured text — Glyph then slices it into image tiles and ships only the ones that changed.
+**A graphics and UI framework for Even Realities G2 smart glasses.**
 
-The Even SDK is an *optional* peer dependency - Only `@gabrielevierti/glyph/runtime` touches it, so rendering to a canvas, a test, or a PNG needs nothing installed and no hardware attached.
+Build interfaces with paths, text, charts, layouts, and reusable components. Glyph renders them into a **576 × 288 framebuffer with 16 grayscale levels**, splits the frame into image tiles, and updates the tiles that changed.
+
+The rendering core is independent of the Even SDK. You can develop and test in a browser without glasses; the optional runtime connects your interface to the G2.
 
 ## Made with Glyph
-- [OcuClaw](https://ocuclaw.com)
-<img width="1227" height="362" alt="Screenshot 2026-09-21 at 18 34 54" src="https://github.com/user-attachments/assets/188608cb-be0c-4988-8f04-92e1c6b35580" />
 
-- [TideView](https://github.com/gabrielevierti/tideview)
-<img width="819" height="342" alt="Screenshot 2026-09-21 at 18 35 41" src="https://github.com/user-attachments/assets/3cd82384-441e-49f5-b28f-308f4219c459" />
+### [OcuClaw](https://ocuclaw.com)
 
-- [G2ModelViewer](https://github.com/gabrielevierti/g2modelviewer)
+<img width="1227" height="362" alt="OcuClaw interface built with Glyph" src="https://github.com/user-attachments/assets/188608cb-be0c-4988-8f04-92e1c6b35580" />
 
-## Why a framebuffer
+### [TideView](https://github.com/gabrielevierti/tideview)
 
-The G2 exposes container primitives, not a graphics API. You can position text and blit images; you cannot draw an arc, clip a rotating horizon to a circle, or measure a string before you place it.
+<img width="819" height="342" alt="TideView marine interface built with Glyph" src="https://github.com/user-attachments/assets/3cd82384-441e-49f5-b28f-308f4219c459" />
 
-Glyph treats the display as what it is — a 576×288 surface with 16 levels of gray — and puts a full rasterizer in front of it. The SDK becomes transport. Nothing above `GlyphRuntime` knows it exists, which is also why the entire framework can be rendered and tested in a headless browser.
+### [G2ModelViewer](https://github.com/gabrielevierti/g2modelviewer)
+
+A software 3D renderer that uses Glyph to display OBJ and GLB models on the G2.
+
+## Try it locally
+
+Clone the repository and start the browser preview:
+
+```bash
+git clone https://github.com/gabrielevierti/glyph.git
+cd glyph
+npm install
+npm run dev
+```
+
+Open the URL printed by Vite. No glasses are required.
+
+The preview includes navigation instruments, charts, and UI kit examples. Use its controls to compare outline and filled surfaces, inspect tile boundaries, adjust brightness, and check text contrast.
+
+To regenerate the bitmap font atlas:
+
+```bash
+npm run font
+```
+
+Use a recent Node.js 22 release compatible with the project's Vite dependency. The additional Gray4 conversion test requires Node.js 22+.
+
+## What you can build
+
+Glyph provides the drawing tools and UI building blocks needed for compact grayscale interfaces:
+
+| Area | Features |
+|---|---|
+| Drawing | Shapes, paths, Bézier curves, gradients, dithering, transforms, and clipping |
+| Text | Measurement, wrapping, truncation, automatic fitting, and bitmap fonts |
+| Layout | Rows, columns, grids, intrinsic sizing, flexible sizing, and alignment |
+| UI | Panels, lists, badges, buttons, progress indicators, tabs, and status elements |
+| Charts | Line, bar, scatter, sparkline, ring, gauge, heat-strip, and bullet charts |
+| Instruments | Compass, attitude indicator, wind indicator, speed limit, and maneuver arrow |
+| App structure | Screens, transitions, input routing, selection, and scrolling |
+| Diagnostics | Ink reports, contrast checks, tile-layout analysis, and device benchmarks |
+
+Experimental controls include chips, toggles, checkboxes, radio buttons, sliders, steppers, notifications, spinners, skeletons, and count badges.
+
+## Draw your first frame
+
+This example creates a frame using the library's public API:
 
 ```ts
 import { GlyphFrame } from "@gabrielevierti/glyph";
@@ -26,342 +70,245 @@ import { GlyphFrame } from "@gabrielevierti/glyph";
 const frame = new GlyphFrame({ supersample: 2 });
 
 frame.draw((g) => {
-  g.roundRect({ x: 16, y: 16, width: 240, height: 80 }, 14, { fill: 2, stroke: 8 });
-  g.gradient({ x: 16, y: 110, width: 240, height: 40 }, 0, 15);
+  g.roundRect(
+    { x: 16, y: 16, width: 240, height: 80 },
+    14,
+    { fill: 2, stroke: 8 }
+  );
+
   g.text("13.2", 32, 44, { size: 40, weight: 800 }, 15);
+
+  g.gradient(
+    { x: 16, y: 110, width: 240, height: 40 },
+    0,
+    15
+  );
 });
 
-await runtime.render(frame.toFrame());
+const output = frame.toFrame();
 ```
 
-Levels are integers `0`–`15`, not CSS colors. `gray` in the theme names them by role — `surface`, `border`, `secondary`, `strong`, `max` — which is what keeps six screens looking like one product.
+Grayscale values are integers from `0` to `15`. The theme also provides named levels such as `surface`, `border`, `secondary`, `strong`, and `max`.
 
-## The two numbers a see-through display cares about
+The example creates frame data. Displaying it on glasses requires an initialized `GlyphRuntime`; the repository's browser preview provides a separate way to inspect rendering locally.
 
-A phone UI is judged on how it looks. A waveguide UI is judged on how much of the world it costs you, and whether what it costs you can be read. Both are measurable, so both are assertions rather than opinions.
+## How it works
+
+| Layer | Responsibility |
+|---|---|
+| Screens and components | Describe the interface |
+| `GlyphRaster` | Draw primitives, text, and images |
+| `GlyphFrame` | Resolve grayscale output, split tiles, pack Gray4, and compute hashes |
+| `GlyphRuntime` | Compare frames and send changed tiles through the Even SDK |
+
+The runtime has a separate entry point:
+
+```ts
+import { GlyphRuntime } from "@gabrielevierti/glyph/runtime";
+```
+
+Only this module imports `@evenrealities/even_hub_sdk`, which is an optional peer dependency. Browser rendering and core tests do not require a connection to the Even environment.
+
+The current renderer uses browser canvas APIs. Standalone Node.js rendering is not provided.
+
+## Designed for see-through displays
+
+Small grayscale displays benefit from restrained fills, clear typography, and careful use of brightness.
+
+Glyph defaults to an **outline** surface style: panels use borders, selection uses edge markers, and large chart regions use patterns rather than solid fills. A filled style is also available:
+
+```ts
+const frame = new GlyphFrame({ surface: "outline" });
+const filledFrame = new GlyphFrame({ surface: "filled" });
+```
+
+Surface style belongs to each raster instance, so different styles can render side by side.
 
 ### Ink
 
-Every lit pixel is a pixel of the world you cannot see through, so a filled card that reads as "elevated" on a phone reads as "smudge on the lens" on a waveguide.
+The ink report measures average framebuffer intensity and the proportion of lit pixels. It helps compare how much visual content a screen adds.
 
-Glyph's default surface style is therefore `outline`: panels are a hairline border and the content inside them, list selection is an edge marker rather than a filled well, chart areas are hatched rather than flooded, progress tracks are outlines, and the speed roundel is a ring rather than a disc. Fills survive only where the element is small enough that solidity costs nothing and legibility needs it — badges, progress fills, the knockout behind the wind readout.
+For the six-screen reference set documented by the project:
 
-```ts
-const frame = new GlyphFrame({ surface: "outline" });  // default — for wearing
-const shot  = new GlyphFrame({ surface: "filled" });   // for screenshots
-```
+| Metric | Filled | Outline |
+|---|---:|---:|
+| Mean intensity, relative to full brightness | 11.6% | 5.4% |
+| Lit pixels | ~65% | ~12% |
 
-Measured across the six screens, switching to outline **more than halves the ink** and cuts lit pixels by about five times:
+Run `npm run ink` to generate results for the current screens.
 
-| | filled | outline |
-|---|---|---|
-| mean ink (fraction of full brightness) | 11.6% | **5.4%** |
-| pixels lit at all | ~65% | ~12% |
-
-`npm run ink` prints the table per screen, and the suite asserts every screen stays under `inkBudget` (18%).
-
-The surface style lives **on the raster**, not in a module global. Two frames can disagree — the same screen rendered outline and filled side by side, in the same tick, is how the table above is produced, and a parallel test run cannot corrupt another test's setting.
+These are framebuffer measurements. They do not directly measure optical occlusion, perceived readability, or device power consumption.
 
 ### Contrast
 
-Ink says how much of the world the UI is hiding. It says nothing about whether what hides it can be read. A screen can sit comfortably under the ink budget and still put level 7 text on a level 5 panel, which looks fine on a bright monitor and vanishes on glass.
+The contrast lint flags text whose grayscale level is too close to the sampled background:
 
 ```ts
-const warnings = frame.raster.enableContrastLint(4);   // minimum level delta
-screen.render(ctx);
-// → [{ text: "SW 14 kt", gray: 7, background: 5, delta: 2, x: 118, y: 96 }]
+const warnings = frame.raster.enableContrastLint(4);
+
+// Render your content, then inspect warnings.
 ```
 
-The lint samples the darkest level in a small neighbourhood before each glyph is drawn — the surface actually showing through, not whichever stroke a single sample happened to land on — and records anything drawn too close to it. The suite asserts zero warnings per screen, and the preview has a checkbox.
+This catches common text/background clashes during development. It samples the rendered interface rather than the real scene behind the glasses, so on-device readability still needs checking.
 
-## Install and run
+## Text and layout
 
-```bash
-git clone https://github.com/gabrielevierti/glyph
-cd glyph
-npm install
-npm run font     # build the bitmap atlas (see "Text", below)
-npm run dev
-```
+Glyph supports both browser-rendered text and bitmap font atlases.
 
-Open the Vite URL. You get the six screens above at 2× with nearest-neighbour scaling — real pixels, not an interpolation of them — plus a tile-layout switcher, a pixel/tile grid overlay, a brightness slider, the contrast lint, and a live readout of how many tiles the transport is actually sending.
+Bitmap atlases provide fixed glyph coverage and metrics for repeatable rendering. `npm run font` collects the text styles used by the example screens and generates atlas files in `public/fonts/`.
 
-`←` `→` or space to page, `↑` `↓` to scroll inside a screen, `1`–`6` to jump. Requires Node 20+.
-
-## Architecture
-
-```text
-your screen                     plain object with a render(ctx) function
-    │
-    ▼
-components · charts · icons     built entirely from the layer below
-    │
-    ▼
-GlyphRaster                     every primitive, drawn supersampled
-    │
-    ▼
-GlyphFrame                      resolve → 16 levels → tile → pack Gray4 → hash
-    │
-    ▼
-GlyphRuntime                    diff against last frame, send only what changed
-    │
-    ▼
-@evenrealities/even_hub_sdk → Even Hub → G2
-```
-
-`GlyphRuntime` is deliberately **not** in the main entry point. Import `@gabrielevierti/glyph/runtime` when you need transport. Keeping the SDK out of the core is what makes the whole framework testable without hardware, and what lets it be an optional dependency.
-
-## The primitive layer
-
-Everything takes a geometry and a single `Paint` (`fill`, `stroke`, `width`, `dash`, `cap`, `join`, `alpha`), so nothing has a bespoke signature.
-
-| | |
+| Font mode | Behavior |
 |---|---|
-| **Shapes** | `rect` `roundRect` (per-corner radii) `circle` `ellipse` `arc` `sector` `ring` `polygon` `regularPolygon` `star` `polyline` `line` `hline` `vline` `pixel` |
-| **Curves** | `spline` (Catmull-Rom) `bezier` `quad` `path` — plus `GlyphPath` and `parsePath` for reusable path data |
-| **State** | `save` `restore` `scoped` `translate` `rotate` `rotateAbout` `scaleBy` `clipRect` `clipRound` `clipCircle` `clipPath` |
-| **Tone** | `gradient` `radialGradient` `ditherRect` `hatch` `dots` `gridLines` `blit` `layer` `drawRaster` |
-| **Text** | `text` `textBox` (wrap, align, ellipsis) `measure` `capHeight` — and `wrap` `truncate` `fitStyle` standalone |
+| `auto` | Use the bitmap atlas when a matching face exists; otherwise use canvas text |
+| `bitmap` | Require an exact bitmap face; throw if it is missing |
+| `canvas` | Use browser font rendering |
 
-Components respect the surface style automatically, so a screen written once works in both modes without branching.
+Bitmap lookup matches family, weight, size, and italic style. Glyph does not rescale a missing bitmap size automatically.
 
-**On tone:** Canvas gradients band badly once you quantize to 16 levels. `gradient`, `radialGradient` and `ditherRect` compute the ramp per logical pixel and apply a 4×4 ordered dither, which is the difference between a ramp and a staircase. See the Primitives screen.
+Committing an atlas keeps its bytes consistent across machines. Regenerating it can produce different results when the build machine resolves different fonts.
 
-**On supersampling:** the raster draws at 2× (or 3×) and averages down. On a display this small that averaging is what turns edge coverage into gray levels — clean diagonals and curves for free, without a custom antialiaser.
-
-**On resolving:** the average is a straight arithmetic mean, deliberately. Every value on the canvas is `level × 17`, a linear encoding of a level rather than an sRGB colour, and the panel's output is linear in level — so the plain mean is the physically correct one. Gamma-correcting here is a plausible-sounding way to make every antialiased edge slightly wrong.
-
-**Brightness** is one scalar applied at resolve, so a whole design dims together without a component knowing about it:
+Layout helpers return rectangles that you can use directly when drawing:
 
 ```ts
-app.brightness = 0.6;   // indoors, or a low-power mode
+import { row, grow } from "@gabrielevierti/glyph";
+
+const [sidebar, content] = row(
+  { x: 16, y: 16, width: 544, height: 256 },
+  [{ size: 120 }, { size: grow(1) }],
+  { gap: 12 }
+);
 ```
 
-## Text
+Rows and columns support fixed and flexible sizes, intrinsic measurements, bounds, gaps, padding, and alignment. Text helpers provide wrapping, truncation, and fitting within available space.
 
-Text was the last thing in Glyph that the host machine could influence. Canvas measures and rasterizes with whatever fonts the browser happens to have, which is fine until you notice that the committed reference screens are supposed to be a regression suite — and a regression suite that renders differently on your laptop and on CI is a picture, not a test.
+## Screens and application flow
 
-`npm run font` builds a **bitmap atlas** and commits it to `public/fonts/`. It runs in two passes:
-
-1. Render every screen with a style observer attached, and collect the exact set of `(family, weight, size, italic)` the app asks for — including the one-off sizes screens spell inline, like `{ ...T.numeral, size: 13 }`. A hand-maintained list of faces always drifts; this one cannot.
-2. Rasterize each of those faces glyph by glyph at *logical* resolution — the atlas is the final pixel grid, there is nothing to supersample down to — and pack the coverage as Gray4.
-
-At runtime, glyphs are blitted from a pre-tinted atlas at whole logical pixels. Same bytes in, same bytes out, on any machine.
-
-```ts
-const font = await loadFontSet("/fonts/inter.json");
-app.useFont(font);
-```
-
-Lookup is exact on `(family, weight, size, italic)`; Glyph will not scale a bitmap face, because a blurry numeral on a 16-level display is worse than an honest error. Three modes:
-
-| `fontMode` | behaviour |
-|---|---|
-| `auto` | bitmap when the atlas has the face, canvas otherwise. The default. |
-| `bitmap` | bitmap only — a missing face throws. Use this in CI. |
-| `canvas` | always the host. Used while generating an atlas. |
-
-Atlases are fetched, not bundled: a full set is a few hundred KB, which is nothing over a LAN and absurd inside a library.
-
-Measurement is memoized. Wrapping, truncation and `fitStyle` re-measure the same unchanged labels on every paint, and at 20fps that was thousands of `measureText` calls a second for strings that had not moved.
-
-## Layout, type and icons
-
-`row` and `column` are a real flex solver — fixed sizes, `grow(n)` weights, `auto` intrinsic sizes, `min`/`max` clamps, gaps, padding, `justify`, `align` — returning plain rects. There is no retained tree; on a screen this size a full repaint is cheaper than reconciling one.
-
-```ts
-const [left, centre, right] = row(safe, [{ size: 166 }, { size: grow(1) }, { size: 166 }], { gap: 8 });
-const [icon, label] = row(bar, [auto(20), { size: grow(1) }], { gap: 6 });
-const [tag] = row(bar, [auto((h) => g.measure(text, T.label) + h)]);
-```
-
-`auto` items must be able to report their own size, as a number or a `(crossSize) => number`. An `"auto"` with no way to measure itself is an error rather than a silently zero-width rect.
-
-Also `splitH` `splitV` `grid` `inset` `align` `aspectFit` `snap` `polar` `bearingToAngle` `remap`.
-
-The type scale steps aggressively, because on a waveguide there is no useful middle ground between "read this" and "see this": `hero` `display` `headline` `title` `body` `caption` `label` `micro` `numeral` `numeralLg` `numeralXl`.
-
-**140 icons**, authored as stroked path data on a 24×24 grid and parsed once. Stroked rather than filled — a filled silhouette turns to mush at 10px on this display, strokes stay separable. Add your own with `registerIcon(name, pathData)`.
-
-## Components and charts
-
-The convenience layer, all built from primitives: `panel` `section` `divider` `metric` `stat` `keyValue` `listRow` `progressBar` `segmentedBar` `battery` `signalBars` `statusBar` `pageDots` `tabBar` `scrollbar` `pill` `tag` `badge` `button` `toggle` `toast` `emptyState` `scrim`.
-
-Instruments, because a marine or navigation app needs them and nothing else provides them: `compassRose` (rotating card, fixed lubber line, secondary pointer), `attitudeIndicator`, `windIndicator`, `speedLimit`, `maneuverArrow`.
-
-Charts: `lineChart` `barChart` `rankChart` `scatterChart` `sparkline` `ringChart` `gaugeChart` `heatStrip` `bulletChart`, plus `chartFrame` if you want the grid and gutter but your own marks.
-
-One rule the components follow: **the type scale yields to the box, not the other way round.** `metric` and `ringChart` shrink their value via `fitStyle` until it fits, because a readout is the one thing a design cannot control the length of — `9.1` and `247.8` want the same slot. `fitStyle` binary-searches the same candidate sizes a walk would have stepped through, so a 64px hero falling to 12px costs six measurements instead of fifty-two.
-
-## The app shell
-
-```ts
-import { GlyphApp } from "@gabrielevierti/glyph";
-import { GlyphRuntime } from "@gabrielevierti/glyph/runtime";
-
-const app = new GlyphApp({
-  screens,
-  tileLayout: TILE_CHROME,
-  fps: 20,
-  font,
-  onSlowFrame: ({ screen, ms }) => console.warn(`${screen} painted in ${ms.toFixed(1)}ms`)
-});
-app.start();
-
-const runtime = new GlyphRuntime({ tileLayout: TILE_CHROME });
-await runtime.start();
-app.attachRuntime(runtime);
-runtime.onInput((event) => app.handleInput(event));
-```
+`GlyphApp` manages screens, repaint scheduling, transitions, and input routing.
 
 A screen is a plain object:
 
 ```ts
-export const myScreen: Screen = {
+import type { Screen } from "@gabrielevierti/glyph";
+
+export const depthScreen: Screen = {
   name: "Depth",
-  animated: true,                       // repaint every tick, not just on invalidate()
-  onInput(event, app) { /* return true to consume */ },
-  render({ g, now, safe, app }) { /* draw */ }
+  animated: false,
+
+  render({ g }) {
+    g.text("DEPTH", 24, 24, { size: 16, weight: 600 }, 10);
+    g.text("13.2 m", 24, 56, { size: 40, weight: 800 }, 15);
+  },
 };
 ```
 
-The paint loop does nothing when nothing changed. Screen changes slide via two pooled offscreen layers — a full-screen layer at 2× is a 1152×576 canvas, and allocating two of them per screen change is a lot of garbage for an animation the wearer sees for a fifth of a second. `Cursor` handles selection and scrolling for list screens.
+Animated screens repaint on the app's timer. Static screens can update when invalidated. `Cursor` provides selection and scrolling behavior for list-based interfaces.
 
-Without `onSlowFrame`, a screen that overruns its budget just quietly runs at a lower frame rate and nobody finds out until it is on someone's face.
+Use `onSlowFrame` to identify expensive screen rendering, and inspect `app.transportStats` when connected to the runtime. Browser rendering speed and device update speed are separate measurements.
 
-## Tile layouts
+## Tile layouts and updates
 
-**The G2 accepts four image containers per page.** This is a hardware limit. The Even Hub simulator will happily accept twelve, which means a layout can pass every test you run locally and fail on the glasses — worth knowing before you design around it (btw thanks to @lousisx over on Discord for pointing this out to me!)
+Glyph targets a maximum of **four image containers per G2 page**. The simulator may accept configurations that do not work on the physical device, so validate layouts before deployment.
 
-Four containers always cover 165,888 pixels between them, so you cannot buy diffing granularity by making tiles smaller. What you *can* choose is their **shape**, and shape decides how much of the screen a given change drags along with it. Tiles do not have to be the same size.
+Several full-screen layouts are included:
 
-| Layout | Shape | Good for |
+| Layout | Tile arrangement | Useful for |
 |---|---|---|
-| `TILE_QUADRANTS` | 288×144 ×4 | The SDK reference layout. Sane default. |
-| `TILE_BANDS` | 576×72 ×4 | Screens that change in horizontal strips. |
-| `TILE_COLUMNS` | 144×288 ×4 | Side-by-side panels updating independently. |
-| `TILE_CHROME` | 576×32 strip + 192×256 ×3 | Isolates rarely-changing chrome from content. |
-| `TILE_HERO` | 426×288 + 150×96 ×3 | One dominant panel plus a rail. |
+| `TILE_QUADRANTS` | Four 288 × 144 tiles | General-purpose layouts |
+| `TILE_BANDS` | Four 576 × 72 strips | Horizontal sections |
+| `TILE_COLUMNS` | Four 144 × 288 columns | Independent vertical panels |
+| `TILE_CHROME` | One 576 × 32 strip and three 192 × 256 tiles | A persistent header |
+| `TILE_HERO` | One 426 × 288 tile and three 150 × 96 tiles | A large main view with a side rail |
 
-`npm run tiles` measures the real cost — Gray4 KB sent per second of animation, per screen, per shape:
+`validateLayout()` checks coverage, overlap, bounds, even widths, and the container limit.
 
-```
-screen         quadrants      bands    columns     chrome       hero
-SeaState            810        628        648        528*       740
-Navigator           263        284        243*       309        282
-Dashboard            20*        41         20*        24         60
-Charts              405*       608        405*       480        796
-```
+Tile boundaries affect update cost: changing one pixel requires updating its entire tile. Place boundaries between regions that change at different rates.
 
-Up to 35% between the best and worst shape for the same screen. The rule that falls out: **put the seams between the regions that change at different rates.**
+### Choosing a layout
 
-`validateLayout()` checks coverage, overlap, bounds, even widths and the container cap, and both `GlyphFrame` and `GlyphRuntime` throw on an invalid layout rather than corrupting rows or failing opaquely on device.
-
-### Letting it choose
-
-That rule is one a computer follows better than a person does. Record which pixels actually change while a screen animates, then search the space of tilings for the one that costs the fewest bytes on that evidence:
-
-```ts
-const recorder = new ChangeRecorder();
-for (const t of timestamps) { paint(t); recorder.observe(frame.toLevels()); }
-
-const best = recorder.suggest({ step: 16 });
-console.log(best.layout.note);        // "measured — 576×48 + 192×240 + 208×240 + 176×240"
-console.log(layoutToSource(best.layout));
-```
-
-The search is **exhaustive over guillotine tilings on a grid**, not a heuristic. Change is stored as one integral image per observed transition, so "did anything inside this rectangle change on frame 7" is four array reads; rectangle costs are memoized across candidates, and a partial-cost bound prunes whole subtrees. At a 16px step that is a few hundred thousand tilings in about a second.
-
-`npm run tiles` now prints a `measured` column next to the hand-drawn shapes, and the preview has an **optimise** button that measures whatever is currently on screen, switches to the result, and prints paste-ready source to the console.
-
-## Transport and dirty tiles
-
-Each tile is packed to Gray4 (two pixels per byte, high nibble first) and hashed with FNV-1a. `GlyphRuntime` compares against the previous frame and sends only tiles that changed. Measured on the ticking Dashboard: **one tile of four per second.** Identical renders provably hash identically, which is what makes the optimization safe.
-
-**The newest frame wins.** An earlier version queued every render behind its predecessor, which is correct right up until the transport is slower than the paint loop: then the queue grows without bound and the glasses fall further and further behind, displaying frames from ten seconds ago. A display has no use for a stale frame. At most one frame is ever waiting; a superseded one is counted in `stats.dropped` rather than sent.
-
-Tiles go over the wire as PNG, because that is what the image containers accept today. The Gray4 packing is not wasted work — it is the diffing key and the wire format the moment raw uploads are exposed. `GlyphRuntime.encodeTile` is the single place that would change; its canvases are cached per tile size rather than allocated per tile per frame.
-
-### Measuring what it actually costs
-
-Bytes per second is a proxy. What caps your frame rate is the round trip for one image-container update over BLE, and that number is not in any datasheet.
+Run:
 
 ```bash
-npm run bench     # prints a LAN URL; scan it with the G2 paired
+npm run tiles
 ```
 
-The Bench screen drives every tile dirty on every paint — the worst case, deliberately — and reports `p50` / `p95` per-tile round trip, tiles per second, dropped frames, and the frame-rate ceiling that falls out of the latency. It is not in the default screen set; it is an instrument, not a design.
+The report compares layouts using packed Gray4 data as a cost model. These figures are useful for comparing tile arrangements; they are not measurements of PNG payload size or actual BLE throughput.
 
-```ts
-app.transportStats  // { sent, dropped, bytes, p50, p95, last, rate }
-```
+`ChangeRecorder` can also observe frame changes and suggest a layout. Its search evaluates guillotine tilings on a configurable grid. The preview's **optimise** control exposes this workflow interactively.
 
-## Testing
+Layouts are fixed when the page is created. Applying a different layout requires rebuilding the page.
+
+### Sending frames
+
+The runtime hashes packed Gray4 tiles to detect changes and encodes tile updates as PNG for transport.
+
+When rendering outpaces transport, the runtime keeps at most one pending frame and replaces it with newer output. Superseded pending frames are counted as dropped, preventing an ever-growing queue of stale frames.
+
+Actual update speed depends on tile content, encoding, the SDK, and the device connection. Measure it with the device benchmark.
+
+## Run on G2
+
+Start a server accessible on your local network:
 
 ```bash
-npm test           # the suite, rendered in real Chromium
-npm run ink        # occlusion report, filled vs outline, per screen
-npm run tiles      # transport cost per tile shape, per screen, plus the search
-npm run snapshot   # re-render img/screens/*.png and img/splash.png
-npm run font       # rebuild the bitmap atlas
-npm run bench      # transport latency, on device
-```
-
-Glyph's output is pixels, so the only test worth writing is one that rasterizes. Vite serves the TypeScript, Playwright opens the suite. It covers Gray4 round-tripping, tile-layout coverage and rejection, hash stability, dirty-tile counts, text wrap and truncation bounds (swept across every column width, because the double-ellipsis bug hid in the one width someone happened to try), tracked-text centring, `fitStyle` against a linear search, flex arithmetic including intrinsic sizing, per-raster surface style, brightness, the shared tile diff, the layout search against the reference layout, every screen rendering clean at four timestamps in both surface styles, safe-area edge bleed, per-screen ink budget, per-screen contrast, and the app shell's paint loop, transitions and input routing.
-
-The three reference screens double as the visual regression suite — and with the bitmap atlas committed, they are reproducible on a machine other than the one that made them.
-
-CI runs typecheck, the suite, the ink report and the library build on every push.
-
-## On device
-
-```bash
-npm run host                              # vite on 0.0.0.0
+npm run host
 npx evenhub qr --url http://YOUR_LAN_IP:5173
 ```
 
-Scan from the Even companion app with the G2 paired; laptop and phone on the same network. Or use the simulator: `npm run dev` in one terminal, `npm run sim` in another.
+Keep your computer and phone on the same network. Scan the QR code through the Even companion app with your G2 paired.
+
+To use the simulator, run these commands in separate terminals:
 
 ```bash
-npm run pack     # .ehpk for the Even Hub developer portal
+npm run dev
 ```
 
-## Known limitations
+```bash
+npm run sim
+```
 
-- **`runtime.ts` is the one file never executed in CI** — it needs the SDK and real hardware. Test it first on device.
-- **Bitmap coverage is only as reproducible as the machine that built the atlas.** Once committed the bytes are fixed for everyone, but regenerating on a host with different fonts installed will produce a diff. `npm run font` prints which family the browser actually resolved for each face so a substitution is visible rather than silent.
-- **`statusBar` assumes a 576-wide surface.** It is chrome, not a component.
-- **No headless rendering outside a browser.** `GlyphRaster` takes an injected `createCanvas`, and with a bitmap atlas installed nothing else needs a font stack — so a node-canvas backend is now a small change, but it is not written.
-- **Dirty tracking is per tile, not per region.** With only four containers, a one-pixel change repaints at least a quarter of the screen.
-- **The layout is fixed at page creation**, so a screen cannot pick its own tile shape without tearing down and rebuilding the page. The search will happily find a different optimum per screen; you can only use one of them at a time.
-- **Ink and contrast are measured, not enforced at draw time.** Nothing stops a screen flooding the surface; the budget is a test, not a runtime guard.
-- **The contrast lint samples, it does not integrate.** It checks the backdrop at the glyph's anchor, not under every stroke, so it catches flat-on-flat clashes reliably and text over fine texture only sometimes.
+To create an Even Hub package:
+
+```bash
+npm run pack
+```
+
+## Testing and diagnostics
+
+| Command | Purpose |
+|---|---|
+| `npm test` | Run the browser-based test suite |
+| `npm run typecheck` | Check TypeScript types |
+| `npm run build:lib` | Build the library |
+| `npm run ink` | Report screen intensity and lit-pixel coverage |
+| `npm run tiles` | Compare tile layouts and evaluate layout suggestions |
+| `npm run snapshot` | Regenerate reference screenshots |
+| `npm run font` | Regenerate bitmap font atlases |
+| `npm run test:gray-fast` | Check Gray4 conversion and packing; requires Node.js 22+ |
+| `npm run bench` | Measure transport behavior with a paired device |
+
+The browser suite covers rendering, Gray4 packing, tile validation, text measurement, layout, screen behavior, and visual regression checks.
+
+The device benchmark reports update latency, throughput, and dropped frames. Improvements to browser preview rendering should be measured separately from improvements to wireless transport.
+
+## Current limitations
+
+- **Device transport needs hardware testing.** The browser suite does not establish correctness or performance on physical glasses.
+- **Rendering requires a browser canvas environment.** A standalone Node.js backend is not included.
+- **Some components assume the G2 dimensions.** For example, `statusBar` assumes a 576-pixel-wide surface.
+- **Updates operate on whole tiles.** Small changes can still trigger comparatively large image updates.
+- **Tile layouts are fixed for the lifetime of a page.**
+- **Font atlas generation depends on the build environment.** Keep generated assets under version control when reproducibility matters.
+- **Ink budgets and contrast checks are diagnostics.** They do not enforce rendering restrictions or guarantee readability on glasses.
+- **Extended UI controls are experimental.** Check their appearance and performance on your target hardware.
+
+## Contributing
+
+Bug reports, example applications, rendering fixes, and device measurements are welcome.
+
+For rendering issues, include a minimal example and a screenshot. For device issues, include the SDK and firmware versions, tile layout, expected behavior, and observed behavior.
+
+When reporting a performance improvement, specify what was measured: rendering time, encoded payload size, update latency, or device throughput.
 
 ## License
 
-MIT
-
-
-## Extended UI primitives (experimental)
-
-`src/glyph/extended.ts` adds eleven low-overdraw primitives: `chip`, `compactToggle`, `checkBox`, `radioButton`, `sliderTrack`, `stepper`, `compactTabs`, `notificationToast`, `spinner`, `skeleton`, and `countBadge`. All use the existing `GlyphRaster` interface and grayscale theme. The existing public component APIs remain unchanged.
-
-```ts
-import { chip, compactToggle, spinner, stepper } from '@gabrielevierti/glyph';
-
-chip(g, { x: 20, y: 20, width: 70, height: 22 }, 'CONNECTED');
-compactToggle(g, { x: 100, y: 20, width: 36, height: 18 }, true);
-spinner(g, { x: 150, y: 20, width: 20, height: 20 }, 0.4);
-stepper(g, { x: 20, y: 55, width: 160, height: 20 }, 4, 1);
-```
-
-This is a source-level enhancement; benchmark performance on target hardware before making speed claims.
-
-
-## Enhanced UI kit showcase
-
-The preview now includes **UI Kit · Controls**, **UI Kit · Dashboard**, and **UI Kit · States**. Run `npm install && npm run dev`, then navigate between screens with the preview arrows. The new screens demonstrate chips, toggles, checkboxes, radio buttons, sliders, steppers, tabs, toast notifications, spinners, skeletons, and unread badges in the actual 576×288 Gray4 framebuffer. Use the **Surface** selector to compare outline and filled modes.
-
-The preview Gray4→RGBA conversion now uses a precomputed lookup table. Run `npm run test:gray-fast` (Node 22+) to verify conversion and Gray4 packing. This is a micro-optimization of preview rendering, **not a measured improvement in G2 wireless throughput**.
-
-For hardware performance, use `npm run bench` with a paired device.
+MIT. See [LICENSE](LICENSE).
