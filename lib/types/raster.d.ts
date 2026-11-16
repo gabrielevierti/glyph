@@ -13,6 +13,33 @@ export interface ContrastWarning {
     x: number;
     y: number;
 }
+/** How an image is placed in its box. */
+export type ImageFit = "cover" | "contain" | "fill";
+/**
+ * How continuous tone is reduced to 16 levels.
+ *
+ * `ordered`   — a fixed 4×4 pattern. Stable from frame to frame, so it is the
+ *               one to use for anything that animates or sits beside UI.
+ * `diffusion` — Floyd–Steinberg. Smoother on photographs, but the pattern
+ *               shifts when the image does, which shimmers in motion.
+ * `none`      — nearest level. Bands on gradients; fine for flat artwork.
+ */
+export type DitherMode = "ordered" | "diffusion" | "none";
+export interface ImageOptions {
+    fit?: ImageFit;
+    dither?: DitherMode;
+    /** Multiplier on brightness. 1 leaves the image alone. */
+    brightness?: number;
+    /** Contrast about mid-gray. 1 leaves the image alone. */
+    contrast?: number;
+    /** Greater than 1 lifts the midtones, which a dim display usually wants. */
+    gamma?: number;
+    invert?: boolean;
+    /** Brightest level the image may use. Lower it to keep a photo from flooding the view. */
+    maxLevel?: Gray;
+    /** Round the corners of the drawn image. */
+    radius?: Corners;
+}
 /**
  * How text is rasterized.
  *
@@ -127,6 +154,8 @@ export declare class GlyphRaster {
     circle(cx: number, cy: number, radius: number, p?: Paint): this;
     ellipse(cx: number, cy: number, rx: number, ry: number, rotation?: number, p?: Paint): this;
     line(x1: number, y1: number, x2: number, y2: number, p?: Paint): this;
+    /** A line with an arrowhead at its far end. `head` is the head's length in logical pixels. */
+    arrow(x1: number, y1: number, x2: number, y2: number, p?: Paint, head?: number): this;
     /** Crisp single-pixel horizontal rule. Snapped so it never lands between pixels. */
     hline(x1: number, x2: number, y: number, gray?: Gray, weight?: number): this;
     /** Crisp single-pixel vertical rule. */
@@ -166,6 +195,15 @@ export declare class GlyphRaster {
     gridLines(r: Rect, stepX: number, stepY?: number, gray?: Gray): this;
     /** Copy a level buffer straight onto the surface, nearest-neighbour. */
     blit(pixels: Uint8Array, width: number, height: number, x: number, y: number): this;
+    /**
+     * Draw a photograph, map tile, album cover — anything with more tones than
+     * the display has — reduced to 16 levels with dithering.
+     *
+     * The source must be readable: an image from another origin needs CORS
+     * headers and `crossOrigin = "anonymous"`, or the browser will refuse to hand
+     * its pixels back.
+     */
+    image(source: CanvasImageSource, r: Rect, opts?: ImageOptions): this;
     /** Compose another raster onto this one. */
     drawRaster(other: GlyphRaster, x?: number, y?: number, alpha?: number): this;
     /**

@@ -8,6 +8,8 @@
  *   text/layout          measurement, wrapping, flex-style boxes
  *   theme/icons          the design system
  *   charts/components    things built out of primitives
+ *   hud/overlays/        the component library proper: instruments, things
+ *   content/inputs       that sit on top, things that fill a screen, controls
  *   frame                framebuffer, tiling, Gray4 packing
  *   autolayout           choosing a tiling from measured change
  *   runtime              transport to the G2
@@ -35,3 +37,7 @@ export * from "./autolayout.js";
 export * from "./app.js";
 
 export * from "./extended.js";
+export * from "./hud.js";
+export * from "./overlays.js";
+export * from "./content.js";
+export * from "./inputs.js";

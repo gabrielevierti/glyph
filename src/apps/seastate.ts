@@ -52,8 +52,6 @@ export const seaStateScreen: Screen = {
 
     const depthInner = section(g, depthBox, "Depth", { accessory: c.depth < 12 ? "SHOAL" : "" });
 
-    depthInner.y += 15;
-
     metric(g, depthInner, c.depth.toFixed(1), { unit: "m", label: "Below keel", valueStyle: T.numeralXl });
 
     // ── Compass: the thing you actually steer by ──────────────────────────

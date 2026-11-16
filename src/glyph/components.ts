@@ -199,6 +199,7 @@ export function listRow(g: GlyphRaster, r: Rect, opts: ListRowOptions): void {
 // Indicators
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** A determinate bar, 0..1, optionally cut into segments by `ticks`. */
 export function progressBar(
   g: GlyphRaster, r: Rect, value: number,
   opts: { fill?: Gray; track?: Gray; radius?: number; ticks?: number } = {}
@@ -208,10 +209,20 @@ export function progressBar(
   if (opts.track !== undefined) g.roundRect(r, rad, { fill: opts.track });
   else if (isOutline(g)) g.roundRect(r, rad, { stroke: G.hairline, width: 1 });
   else g.roundRect(r, rad, { fill: G.sunken });
-  if (opts.ticks) {
-    for (let i = 1; i < opts.ticks; i++) g.vline(r.x + (r.width * i) / opts.ticks, r.y, bottom(r), G.off);
+  if (v > 0.005) g.roundRect({ ...r, width: Math.min(r.width, Math.max(r.height, r.width * v)) }, rad, { fill: opts.fill ?? G.max });
+  // Ticks are cut *out of* the bar, so they go on last. Drawn first they sat
+  // underneath the fill, and in outline mode — where the track is empty — they
+  // were dark lines on a dark background: invisible either way.
+  const ticks = opts.ticks && Number.isFinite(opts.ticks) ? Math.min(64, Math.floor(opts.ticks)) : 0;
+  const hollow = isOutline(g) && opts.track === undefined;   // the track is only an outline
+  const filledTo = v > 0.005 ? r.x + Math.min(r.width, Math.max(r.height, r.width * v)) : r.x;
+  for (let i = 1; i < ticks; i++) {
+    const x = r.x + (r.width * i) / ticks;
+    // Inside the fill a tick is a gap; past it, on a hollow track, there is
+    // nothing to cut a gap into, so it is a faint mark instead.
+    if (x < filledTo - 1 || !hollow) g.vline(x, r.y + (hollow ? 1 : 0), bottom(r) - (hollow ? 1 : 0), G.off);
+    else g.vline(x, r.y + 2, bottom(r) - 2, G.hairline);
   }
-  if (v > 0.005) g.roundRect({ ...r, width: Math.max(r.height, r.width * v) }, rad, { fill: opts.fill ?? G.max });
 }
 
 /** Discrete segments — better than a smooth bar when the count matters. */
@@ -233,10 +244,11 @@ export function segmentedBar(
   }
 }
 
+/** A battery outline that fills with its charge, 0..1. `x`, `y` are its left edge and vertical centre. */
 export function battery(g: GlyphRaster, x: number, y: number, level: number, opts: { width?: number; height?: number; gray?: Gray } = {}): void {
   const w = opts.width ?? 22;
   const h = opts.height ?? 11;
-  const v = clamp(level, 0, 1);
+  const v = Number.isFinite(level) ? clamp(level, 0, 1) : 0;
   g.roundRect({ x, y: y - h / 2, width: w, height: h }, 2.5, { stroke: opts.gray ?? G.secondary, width: 1 });
   g.roundRect({ x: x + w + 1, y: y - 2.5, width: 2, height: 5 }, 1, { fill: opts.gray ?? G.secondary });
   const inner = w - 4;
@@ -245,6 +257,7 @@ export function battery(g: GlyphRaster, x: number, y: number, level: number, opt
   }
 }
 
+/** Signal strength as rising bars: `level` of them lit, out of `bars`. */
 export function signalBars(g: GlyphRaster, x: number, y: number, level: number, bars = 4, opts: { height?: number } = {}): void {
   const maxH = opts.height ?? 11;
   for (let i = 0; i < bars; i++) {
@@ -267,6 +280,7 @@ export function statusBar(
   if (opts.time) { g.text(opts.time, x - 4, cy, T.numeral, G.primary, "right", "middle"); }
 }
 
+/** One dot per page, the current one bright — where you are in a set of screens. */
 export function pageDots(g: GlyphRaster, cx: number, y: number, count: number, active: number): void {
   const gap = 9;
   const startX = cx - ((count - 1) * gap) / 2;
@@ -276,7 +290,9 @@ export function pageDots(g: GlyphRaster, cx: number, y: number, count: number, a
   }
 }
 
+/** Labelled tabs with an underline under the active one. */
 export function tabBar(g: GlyphRaster, r: Rect, tabs: string[], active: number): void {
+  if (tabs.length === 0) return;
   const w = r.width / tabs.length;
   tabs.forEach((tab, i) => {
     const cx = r.x + i * w + w / 2;
@@ -288,7 +304,7 @@ export function tabBar(g: GlyphRaster, r: Rect, tabs: string[], active: number):
 
 /** Vertical scroll indicator for lists that overflow. */
 export function scrollbar(g: GlyphRaster, r: Rect, offset: number, visible: number, total: number): void {
-  if (total <= visible) return;
+  if (!(total > 0) || total <= visible) return;
   if (!isOutline(g)) g.roundRect(r, r.width / 2, { fill: G.sunken });
   const h = Math.max(10, (visible / total) * r.height);
   const y = r.y + (offset / total) * r.height;
@@ -326,6 +342,7 @@ export function tag(g: GlyphRaster, x: number, y: number, text: string, opts: { 
   return w;
 }
 
+/** A count in a bright pill, or a plain dot when no count is given. */
 export function badge(g: GlyphRaster, x: number, y: number, count?: number): void {
   if (count === undefined) { g.circle(x, y, 3, { fill: G.max }); return; }
   const text = count > 99 ? "99+" : String(count);
@@ -334,6 +351,7 @@ export function badge(g: GlyphRaster, x: number, y: number, count?: number): voi
   g.text(text, x, y, { ...T.micro, size: 9 }, G.off, "center", "middle");
 }
 
+/** A labelled button. `primary` is the emphasised one of a group; `focused` is the one the gestures act on. */
 export function button(
   g: GlyphRaster, r: Rect, text: string,
   opts: { icon?: GlyphIconName; primary?: boolean; focused?: boolean } = {}
@@ -351,6 +369,7 @@ export function button(
   g.text(text, startX + iconW, centerY(r), T.bodyStrong, fg, "left", "middle");
 }
 
+/** An on/off switch. `x`, `y` are its left edge and vertical centre. */
 export function toggle(g: GlyphRaster, x: number, y: number, on: boolean, width = 32): void {
   const h = width * 0.56;
   if (isOutline(g)) {

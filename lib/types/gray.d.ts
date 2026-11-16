@@ -25,5 +25,4 @@ export declare function hashBytes(bytes: Uint8Array): number;
 export declare function packGray4(pixels: Uint8Array, width: number, height: number): Uint8Array;
 /** Inverse of `packGray4`. */
 export declare function unpackGray4(packed: Uint8Array, width: number, height: number): Uint8Array;
-/** Expand a level buffer to RGBA for canvas display. */
 export declare function grayToRgba(pixels: Uint8Array): Uint8ClampedArray;

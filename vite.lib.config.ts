@@ -7,6 +7,10 @@ import { defineConfig } from "vite";
  * Anyone rendering to a preview, a test, or a PNG should be able to install
  * Glyph without pulling in a bridge they will never call — which is why the SDK
  * is an optional peer dependency and is left external here.
+ *
+ * `public/` is copied in as well, deliberately: that is how the bitmap font
+ * atlas ends up at `lib/fonts/inter.json`, importable by consumers as
+ * `@gabrielevierti/glyph/fonts/inter.json`.
  */
 export default defineConfig({
   build: {
@@ -22,7 +26,9 @@ export default defineConfig({
     },
     rollupOptions: {
       external: ["@evenrealities/even_hub_sdk"],
-      output: { entryFileNames: "[name].js", chunkFileNames: "[name]-[hash].js" }
+      // No content hash in chunk names. `lib/` is committed, and a hash turns
+      // every one-line change into a renamed file plus two edited importers.
+      output: { entryFileNames: "[name].js", chunkFileNames: "chunks/[name].js" }
     }
   }
 });

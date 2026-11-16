@@ -89,6 +89,7 @@ export class GlyphApp {
   private readonly onPaint?: (levels: Uint8Array, app: GlyphApp) => void;
   private readonly onSlowFrame?: (info: SlowFrame, app: GlyphApp) => void;
   private frameHandle: number | null = null;
+  private timerHandle: ReturnType<typeof setTimeout> | null = null;
 
   // Transition state. The two layers are allocated once and reused: a full
   // 576x288 raster at 2x supersampling is a 1152x576 canvas, and churning two
@@ -212,6 +213,12 @@ export class GlyphApp {
   previous(): void { this.goto(this.index - 1, -1); }
 
   handleInput(event: GlyphInputEvent): void {
+    // Coming back to the foreground: whatever the glasses showed when the app
+    // left is not to be trusted, so send everything again.
+    if (event.type === "foreground-enter") {
+      this.runtime?.invalidate();
+      this.diff.reset();
+    }
     if (this.screen.onInput?.(event, this) === true) { this.dirty = true; return; }
     if (event.type === "tap" || event.type === "scroll-down") this.next();
     else if (event.type === "scroll-up") this.previous();
@@ -258,11 +265,50 @@ export class GlyphApp {
     return levels;
   }
 
-  private tick = (): void => {
+  /**
+   * Arm the next tick.
+   *
+   * `requestAnimationFrame` is the right clock while the page is visible, and
+   * no clock at all once it is not: browsers stop it for hidden pages. An Even
+   * Hub app lives in a WebView on a phone that spends most of its life locked
+   * in a pocket while the glasses are very much still being looked at, so a
+   * hidden page falls back to a timer. Timers are throttled in the background
+   * too — typically to about one a second — but a slow display beats a frozen
+   * one.
+   */
+  private schedule(): void {
     if (!this.running) return;
-    this.frameHandle = requestAnimationFrame(this.tick);
+    const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+    if (hidden || typeof requestAnimationFrame !== "function") {
+      this.timerHandle = setTimeout(this.tick, this.interval);
+    } else {
+      this.frameHandle = requestAnimationFrame(this.tick);
+    }
+  }
+
+  private cancelScheduled(): void {
+    if (this.frameHandle !== null) cancelAnimationFrame(this.frameHandle);
+    if (this.timerHandle !== null) clearTimeout(this.timerHandle);
+    this.frameHandle = null;
+    this.timerHandle = null;
+  }
+
+  /** The page was hidden or shown: move to the clock that works there. */
+  private onVisibility = (): void => {
+    if (!this.running) return;
+    this.cancelScheduled();
+    this.schedule();
+  };
+
+  private tick = (): void => {
+    this.frameHandle = null;
+    this.timerHandle = null;
+    if (!this.running) return;
+    this.schedule();
     const now = performance.now();
-    if (now - this.lastPaint < this.interval) return;
+    // A hair of tolerance: a timer that fires a fraction early should paint,
+    // not wait a whole further interval.
+    if (now - this.lastPaint < this.interval - 1) return;
 
     const animating = this.screen.animated === true || this.transition !== null;
     if (!this.dirty && !animating) return;
@@ -280,13 +326,14 @@ export class GlyphApp {
     this.started = performance.now();
     this.lastPaint = performance.now() - this.interval;
     this.screen.onEnter?.(this);
-    this.frameHandle = requestAnimationFrame(this.tick);
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onVisibility);
+    this.schedule();
   }
 
   stop(): void {
     this.running = false;
-    if (this.frameHandle !== null) cancelAnimationFrame(this.frameHandle);
-    this.frameHandle = null;
+    this.cancelScheduled();
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onVisibility);
   }
 
   /** Stop and release every canvas this app owns. */

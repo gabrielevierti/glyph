@@ -6,13 +6,13 @@
  *   npm run snapshot
  */
 import { createServer } from "vite";
-import { chromium } from "playwright";
+import { launchBrowser } from "../tools/browser.mjs";
 import fs from "node:fs";
 
 const server = await createServer({ server: { port: 5198 }, logLevel: "silent" });
 await server.listen();
 
-const browser = await chromium.launch();
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
 await page.goto("http://localhost:5198/tests/snapshot.html");
 await page.waitForFunction("window.__done === true", null, { timeout: 60000 });

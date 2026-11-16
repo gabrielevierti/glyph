@@ -14,7 +14,10 @@ export declare function styleKey(style: TextStyle): string;
  * showing live numerals cannot grow it without limit.
  */
 export declare function cachedMeasurer(measure: Measurer, limit?: number): Measurer;
-/** Greedy word wrap. Words longer than the line are broken at character level. */
+/**
+ * Greedy word wrap. A word wider than the line is broken at character level,
+ * wherever in the paragraph it falls — not only when it happens to come first.
+ */
 export declare function wrap(measure: Measurer, text: string, style: TextStyle, maxWidth: number): string[];
 /** Truncate to a width, appending an ellipsis if anything was cut. */
 export declare function truncate(measure: Measurer, text: string, style: TextStyle, maxWidth: number, ellipsis?: string): string;
@@ -38,3 +41,12 @@ export declare function wrapClamped(measure: Measurer, text: string, style: Text
  * sizes the walk did, so it returns exactly the same answer.
  */
 export declare function fitStyle(measure: Measurer, text: string, style: TextStyle, maxWidth: number, maxHeight?: number, minSize?: number): TextStyle;
+/**
+ * The first of several styles that fits a width; the last one if none does.
+ *
+ * `fitStyle` shrinks a face one pixel at a time, which is right for a hero
+ * numeral and wrong for anything drawn from a bitmap atlas: 17px is not a size
+ * the atlas has. This steps through sizes that exist — the type scale — so a
+ * fitted label is still a face that was actually built.
+ */
+export declare function pickStyle(measure: Measurer, text: string, styles: TextStyle[], maxWidth: number): TextStyle;

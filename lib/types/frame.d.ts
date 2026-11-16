@@ -51,26 +51,34 @@ export declare function validateLayout(layout: TileLayout, width?: number, heigh
 export declare class TileDiff {
     private hashes;
     /** Tiles whose contents differ from the last call. Records them as seen. */
-    changed(tiles: Tile[]): Tile[];
+    changed<T extends Pick<Tile, "id" | "hash">>(tiles: T[]): T[];
     /** Peek without recording — for a transport that may fail to deliver. */
-    peek(tiles: Tile[]): Tile[];
-    accept(tile: Tile): void;
-    reject(tile: Tile): void;
+    peek<T extends Pick<Tile, "id" | "hash">>(tiles: T[]): T[];
+    /** Does this one tile differ from what was last accepted? Records nothing. */
+    differs(tile: Pick<Tile, "id" | "hash">): boolean;
+    accept(tile: Pick<Tile, "id" | "hash">): void;
+    reject(tile: Pick<Tile, "id">): void;
     /** Forget everything, so the next comparison reports a full repaint. */
     reset(): void;
 }
 /**
  * A framebuffer plus its tiling.
  *
- * `toFrame()` reuses its buffers between calls, so a steady-state app allocates
- * nothing per frame. Tile hashes are kept so the runtime can skip tiles that
- * did not change — which on a typical screen is most of them.
+ * `toLevels()` and `toFrame()` write into buffers owned by the frame, so a
+ * steady-state app allocates no pixel storage per paint. The flip side: the
+ * `pixels` of a returned `Frame` and of its tiles are only valid until the next
+ * call. Copy them (`Uint8Array.from`) if you need to keep a frame — the runtime
+ * does exactly that for tiles it queues.
+ *
+ * Tile hashes are kept so the runtime can skip tiles that did not change —
+ * which on a typical screen is most of them.
  */
 export declare class GlyphFrame {
     readonly raster: GlyphRaster;
     readonly tileLayout: TileLayout;
     private levels;
-    private tileBuffers;
+    /** One packed Gray4 buffer per tile, reused between frames. */
+    private packed;
     constructor(options?: RasterOptions & {
         tileLayout?: TileLayout;
     });
@@ -85,6 +93,10 @@ export declare class GlyphFrame {
     draw(fn: (g: GlyphRaster) => void): this;
     /** Resolve to levels only — for the browser preview, which needs no tiling. */
     toLevels(): Uint8Array;
-    /** Resolve, slice and pack. Pass levels from `toLevels()` to avoid resolving twice. */
+    /**
+     * Resolve, slice and pack. Pass levels from `toLevels()` to avoid resolving
+     * twice. Tiles are packed straight out of the level buffer into reused
+     * storage — see the note on buffer lifetime above.
+     */
     toFrame(levels?: Uint8Array): Frame;
 }

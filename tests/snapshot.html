@@ -12,7 +12,7 @@ const CLOCKS = [4200, 4200, 5000, 3000, 3000, 2000];
 let fontSet = null;
 try { fontSet = await loadFontSet("/fonts/inter.json"); } catch { /* falls back to canvas text */ }
 window.__font = fontSet ? fontSet.keys().length : 0;
-const COLS = 2, PAD = 26, GAP = 22, LABEL = 26;
+const COLS = 3, PAD = 26, GAP = 22, LABEL = 26;
 
 const shots = {};
 const rendered = screens.map((screen, i) => {

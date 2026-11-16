@@ -1,3 +1,4 @@
+import { type EvenAppBridge } from "@evenrealities/even_hub_sdk";
 import type { CanvasFactory, Frame, TileLayout } from "./types.js";
 export type GlyphInputEvent = {
     type: "tap";
@@ -7,7 +8,21 @@ export type GlyphInputEvent = {
     type: "scroll-up";
 } | {
     type: "scroll-down";
+}
+/** The app came back to the foreground on the glasses. The runtime repaints. */
+ | {
+    type: "foreground-enter";
+}
+/** The app left the foreground. Nothing drawn now will be seen. */
+ | {
+    type: "foreground-exit";
 };
+/**
+ * Translate one bridge event code. Returns null for codes that are not input —
+ * an earlier version mapped *every* unrecognised system event to a tap, so
+ * re-entering the app, an IMU sample or an exit notice all advanced the screen.
+ */
+export declare function inputFromEventType(code: number | undefined | null): GlyphInputEvent | null;
 export interface RuntimeState {
     connected: boolean;
     message: string;
@@ -24,7 +39,10 @@ export interface TransportStats {
     sent: number;
     /** Tiles that were superseded by a newer frame before they went out. */
     dropped: number;
+    /** Packed Gray4 bytes of the tiles sent — the cost model the tile tools use. */
     bytes: number;
+    /** PNG bytes actually handed to the bridge for those tiles. */
+    encodedBytes: number;
     /** Per-tile round trip, milliseconds. */
     p50: number;
     p95: number;
@@ -40,6 +58,12 @@ export interface GlyphRuntimeOptions {
     /** Send every tile every frame instead of only the changed ones. */
     disableDiffing?: boolean;
     createCanvas?: CanvasFactory;
+    /**
+     * A bridge you already hold. Apps that call `waitForEvenAppBridge()`
+     * themselves (for storage, audio, device info) pass it here instead of
+     * waiting twice; tests pass a fake.
+     */
+    bridge?: EvenAppBridge;
 }
 /**
  * Transport. Turns resolved frames into image-container updates.
@@ -58,11 +82,21 @@ export interface GlyphRuntimeOptions {
  *
  * Third, tile writes are serialised, so a slow frame cannot interleave with the
  * next one and tear.
+ *
+ * "Changed" is judged against what the glasses will be showing once the write
+ * in flight lands, not against what they showed before it started. Comparing
+ * against the last *acknowledged* tile alone has a hole: paint A changes a
+ * tile, paint B changes it back while A is still on the wire, B looks clean
+ * against the acknowledged state and is skipped — and the glasses keep showing
+ * A until something else happens to repaint that tile. On a static screen,
+ * that is forever.
  */
 export declare class GlyphRuntime {
     readonly tileLayout: TileLayout;
     private bridge;
+    private readonly suppliedBridge;
     private started;
+    private starting;
     private diff;
     private listener;
     private onState?;
@@ -72,6 +106,10 @@ export declare class GlyphRuntime {
     private readonly makeCanvas;
     private pending;
     private draining;
+    /** Tiles of the batch on the wire that have not been acknowledged yet. */
+    private inFlight;
+    /** Bumped by stop(), so a drain from a previous session cannot keep writing. */
+    private session;
     private encoders;
     private durations;
     private sampleStart;
@@ -82,7 +120,9 @@ export declare class GlyphRuntime {
     get isConnected(): boolean;
     setOnStateChange(cb: (state: RuntimeState) => void): void;
     private emit;
+    /** Connect and create the page. Safe to call twice: the second call joins the first. */
     start(): Promise<void>;
+    private connect;
     /** Forget which tiles were sent, so the next render is a full repaint. */
     invalidate(): void;
     /**
@@ -94,6 +134,11 @@ export declare class GlyphRuntime {
     private record;
     resetStats(): void;
     get stats(): TransportStats;
+    /**
+     * Subscribe to input. Taps, double taps and scrolls arrive as they happen;
+     * `foreground-enter` also forgets what was sent, because a page that was
+     * away may not be showing what it showed when it left.
+     */
     onInput(handler: (event: GlyphInputEvent) => void): () => void;
     stop(): Promise<void>;
     /**
@@ -101,9 +146,9 @@ export declare class GlyphRuntime {
      * today. The Gray4 packing upstream is not wasted work — it is the diffing
      * key and the wire format the moment raw uploads are exposed.
      *
-     * The encoding canvas is cached per tile size. Allocating one per tile per
-     * frame is four canvases twenty times a second, which the garbage collector
-     * notices even if you do not.
+     * The encoding canvas and its ImageData are cached per tile size. Allocating
+     * them per tile per frame is four canvases twenty times a second, which the
+     * garbage collector notices even if you do not.
      */
     private encodeTile;
     private encoderFor;

@@ -1,5 +1,5 @@
 import { GlyphRaster } from "./raster.js";
-import { hashBytes, packGray4 } from "./gray.js";
+import { hashBytes } from "./gray.js";
 import type { Frame, RasterOptions, SurfaceStyle, Tile, TileLayout, TileSlot } from "./types.js";
 
 /**
@@ -108,8 +108,8 @@ export class TileDiff {
   private hashes = new Map<number, number>();
 
   /** Tiles whose contents differ from the last call. Records them as seen. */
-  changed(tiles: Tile[]): Tile[] {
-    const dirty: Tile[] = [];
+  changed<T extends Pick<Tile, "id" | "hash">>(tiles: T[]): T[] {
+    const dirty: T[] = [];
     for (const tile of tiles) {
       if (this.hashes.get(tile.id) !== tile.hash) {
         dirty.push(tile);
@@ -120,12 +120,17 @@ export class TileDiff {
   }
 
   /** Peek without recording — for a transport that may fail to deliver. */
-  peek(tiles: Tile[]): Tile[] {
-    return tiles.filter((tile) => this.hashes.get(tile.id) !== tile.hash);
+  peek<T extends Pick<Tile, "id" | "hash">>(tiles: T[]): T[] {
+    return tiles.filter((tile) => this.differs(tile));
   }
 
-  accept(tile: Tile): void { this.hashes.set(tile.id, tile.hash); }
-  reject(tile: Tile): void { this.hashes.delete(tile.id); }
+  /** Does this one tile differ from what was last accepted? Records nothing. */
+  differs(tile: Pick<Tile, "id" | "hash">): boolean {
+    return this.hashes.get(tile.id) !== tile.hash;
+  }
+
+  accept(tile: Pick<Tile, "id" | "hash">): void { this.hashes.set(tile.id, tile.hash); }
+  reject(tile: Pick<Tile, "id">): void { this.hashes.delete(tile.id); }
 
   /** Forget everything, so the next comparison reports a full repaint. */
   reset(): void { this.hashes.clear(); }
@@ -134,15 +139,21 @@ export class TileDiff {
 /**
  * A framebuffer plus its tiling.
  *
- * `toFrame()` reuses its buffers between calls, so a steady-state app allocates
- * nothing per frame. Tile hashes are kept so the runtime can skip tiles that
- * did not change — which on a typical screen is most of them.
+ * `toLevels()` and `toFrame()` write into buffers owned by the frame, so a
+ * steady-state app allocates no pixel storage per paint. The flip side: the
+ * `pixels` of a returned `Frame` and of its tiles are only valid until the next
+ * call. Copy them (`Uint8Array.from`) if you need to keep a frame — the runtime
+ * does exactly that for tiles it queues.
+ *
+ * Tile hashes are kept so the runtime can skip tiles that did not change —
+ * which on a typical screen is most of them.
  */
 export class GlyphFrame {
   readonly raster: GlyphRaster;
   readonly tileLayout: TileLayout;
   private levels: Uint8Array;
-  private tileBuffers: Uint8Array[];
+  /** One packed Gray4 buffer per tile, reused between frames. */
+  private packed: Uint8Array[];
 
   constructor(options: RasterOptions & { tileLayout?: TileLayout } = {}) {
     this.raster = new GlyphRaster(options);
@@ -154,7 +165,7 @@ export class GlyphFrame {
     }
 
     this.levels = new Uint8Array(this.raster.width * this.raster.height);
-    this.tileBuffers = this.tileLayout.tiles.map((t) => new Uint8Array(t.width * t.height));
+    this.packed = this.tileLayout.tiles.map((t) => new Uint8Array((t.width * t.height) >> 1));
   }
 
   get width(): number { return this.raster.width; }
@@ -178,20 +189,27 @@ export class GlyphFrame {
     return this.raster.toLevels(this.levels);
   }
 
-  /** Resolve, slice and pack. Pass levels from `toLevels()` to avoid resolving twice. */
+  /**
+   * Resolve, slice and pack. Pass levels from `toLevels()` to avoid resolving
+   * twice. Tiles are packed straight out of the level buffer into reused
+   * storage — see the note on buffer lifetime above.
+   */
   toFrame(levels: Uint8Array = this.toLevels()): Frame {
     const W = this.raster.width;
     const tiles: Tile[] = this.tileLayout.tiles.map((slotDef, index) => {
-      const buf = this.tileBuffers[index];
-      for (let y = 0; y < slotDef.height; y++) {
-        const src = (slotDef.y + y) * W + slotDef.x;
-        buf.set(levels.subarray(src, src + slotDef.width), y * slotDef.width);
+      const packed = this.packed[index];
+      const { x, y, width, height } = slotDef;
+      let p = 0;
+      for (let row = 0; row < height; row++) {
+        let src = (y + row) * W + x;
+        for (let col = 0; col < width; col += 2, src += 2) {
+          packed[p++] = ((levels[src] & 0x0f) << 4) | (levels[src + 1] & 0x0f);
+        }
       }
-      const packed = packGray4(buf, slotDef.width, slotDef.height);
       return {
         id: slotDef.id,
         name: slotDef.name,
-        rect: { x: slotDef.x, y: slotDef.y, width: slotDef.width, height: slotDef.height },
+        rect: { x, y, width, height },
         pixels: packed,
         hash: hashBytes(packed)
       };

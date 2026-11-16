@@ -1,3 +1,4 @@
+import "./style.css";
 import {
   ChangeRecorder, GlyphApp, GlyphFrame, TILE_LAYOUTS, grayToRgba, layoutToSource,
   loadFontSet, safe as SAFE, screen as SCREEN,

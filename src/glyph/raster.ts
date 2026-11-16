@@ -25,6 +25,36 @@ export interface ContrastWarning {
   y: number;
 }
 
+/** How an image is placed in its box. */
+export type ImageFit = "cover" | "contain" | "fill";
+
+/**
+ * How continuous tone is reduced to 16 levels.
+ *
+ * `ordered`   — a fixed 4×4 pattern. Stable from frame to frame, so it is the
+ *               one to use for anything that animates or sits beside UI.
+ * `diffusion` — Floyd–Steinberg. Smoother on photographs, but the pattern
+ *               shifts when the image does, which shimmers in motion.
+ * `none`      — nearest level. Bands on gradients; fine for flat artwork.
+ */
+export type DitherMode = "ordered" | "diffusion" | "none";
+
+export interface ImageOptions {
+  fit?: ImageFit;
+  dither?: DitherMode;
+  /** Multiplier on brightness. 1 leaves the image alone. */
+  brightness?: number;
+  /** Contrast about mid-gray. 1 leaves the image alone. */
+  contrast?: number;
+  /** Greater than 1 lifts the midtones, which a dim display usually wants. */
+  gamma?: number;
+  invert?: boolean;
+  /** Brightest level the image may use. Lower it to keep a photo from flooding the view. */
+  maxLevel?: Gray;
+  /** Round the corners of the drawn image. */
+  radius?: Corners;
+}
+
 /**
  * How text is rasterized.
  *
@@ -374,6 +404,27 @@ export class GlyphRaster {
     });
   }
 
+  /** A line with an arrowhead at its far end. `head` is the head's length in logical pixels. */
+  arrow(x1: number, y1: number, x2: number, y2: number, p?: Paint, head = 6): this {
+    const paint = this.paint(p);
+    const gray = paint.stroke ?? paint.fill ?? 15;
+    const length = Math.hypot(x2 - x1, y2 - y1);
+    if (!(length > 0)) return this;
+    const ux = (x2 - x1) / length;
+    const uy = (y2 - y1) / length;
+    const size = Math.min(head, length);
+    const bx = x2 - ux * size;
+    const by = y2 - uy * size;
+    const half = size * 0.5;
+    // The shaft stops at the base of the head, so a thick stroke cannot poke
+    // out past the point.
+    this.line(x1, y1, bx, by, { ...p, stroke: gray, fill: undefined, cap: p?.cap ?? "butt" });
+    return this.polygon(
+      [{ x: x2, y: y2 }, { x: bx - uy * half, y: by + ux * half }, { x: bx + uy * half, y: by - ux * half }],
+      { fill: gray, alpha: paint.alpha }
+    );
+  }
+
   /** Crisp single-pixel horizontal rule. Snapped so it never lands between pixels. */
   hline(x1: number, x2: number, y: number, gray: Gray = 15, weight = 1): this {
     return this.rect({ x: Math.min(x1, x2), y: Math.round(y), width: Math.abs(x2 - x1), height: weight }, { fill: gray });
@@ -445,7 +496,7 @@ export class GlyphRaster {
     return this.scoped(() => {
       this.ctx.beginPath();
       this.ctx.moveTo(cx, cy);
-      this.ctx.arc(cx, cy, radius, start, end);
+      this.ctx.arc(cx, cy, Math.max(0, radius), start, end);
       this.ctx.closePath();
       this.fillAndStroke(this.paint(p, 15));
     });
@@ -455,8 +506,8 @@ export class GlyphRaster {
   ring(cx: number, cy: number, outer: number, inner: number, start = 0, end = Math.PI * 2, p?: Paint): this {
     return this.scoped(() => {
       this.ctx.beginPath();
-      this.ctx.arc(cx, cy, outer, start, end);
-      this.ctx.arc(cx, cy, inner, end, start, true);
+      this.ctx.arc(cx, cy, Math.max(0, outer), start, end);
+      this.ctx.arc(cx, cy, Math.max(0, Math.min(inner, outer)), end, start, true);
       this.ctx.closePath();
       this.fillAndStroke(this.paint(p, 15));
     });
@@ -465,10 +516,12 @@ export class GlyphRaster {
   quad(x1: number, y1: number, cx: number, cy: number, x2: number, y2: number, p?: Paint): this {
     return this.scoped(() => {
       const paint = this.paint(p);
+      this.ctx.globalAlpha = paint.alpha ?? 1;
       this.ctx.beginPath();
       this.ctx.moveTo(x1, y1);
       this.ctx.quadraticCurveTo(cx, cy, x2, y2);
-      this.stroke({ ...paint, stroke: paint.stroke ?? 15 });
+      this.stroke({ ...paint, stroke: paint.stroke ?? paint.fill ?? 15 });
+      this.ctx.globalAlpha = 1;
     });
   }
 
@@ -478,10 +531,12 @@ export class GlyphRaster {
   ): this {
     return this.scoped(() => {
       const paint = this.paint(p);
+      this.ctx.globalAlpha = paint.alpha ?? 1;
       this.ctx.beginPath();
       this.ctx.moveTo(x1, y1);
       this.ctx.bezierCurveTo(c1x, c1y, c2x, c2y, x2, y2);
-      this.stroke({ ...paint, stroke: paint.stroke ?? 15 });
+      this.stroke({ ...paint, stroke: paint.stroke ?? paint.fill ?? 15 });
+      this.ctx.globalAlpha = 1;
     });
   }
 
@@ -514,7 +569,7 @@ export class GlyphRaster {
           p2.x, p2.y
         );
       }
-      this.stroke({ ...paint, stroke: paint.stroke ?? 15 });
+      this.stroke({ ...paint, stroke: paint.stroke ?? paint.fill ?? 15 });
       this.ctx.globalAlpha = 1;
     });
   }
@@ -527,6 +582,7 @@ export class GlyphRaster {
    * ordered dither. It is the difference between a ramp and a staircase.
    */
   gradient(r: Rect, from: number, to: number, angle = Math.PI / 2): this {
+    if (!(r.width > 0) || !(r.height > 0)) return this;
     const w = Math.max(1, Math.ceil(r.width));
     const h = Math.max(1, Math.ceil(r.height));
     const buf = new Uint8Array(w * h);
@@ -547,6 +603,7 @@ export class GlyphRaster {
   /** Dithered radial gradient, bright at the centre by default. */
   radialGradient(cx: number, cy: number, radius: number, from: number, to: number): this {
     const size = Math.ceil(radius * 2);
+    if (!(size > 0)) return this;
     const buf = new Uint8Array(size * size);
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
@@ -559,6 +616,7 @@ export class GlyphRaster {
 
   /** Fill an area with a fractional gray level using ordered dithering. */
   ditherRect(r: Rect, level: number): this {
+    if (!(r.width > 0) || !(r.height > 0)) return this;
     const w = Math.max(1, Math.ceil(r.width));
     const h = Math.max(1, Math.ceil(r.height));
     const buf = new Uint8Array(w * h);
@@ -570,6 +628,7 @@ export class GlyphRaster {
 
   /** Diagonal hatching. `angle` in radians, `spacing` in logical pixels. */
   hatch(r: Rect, spacing = 4, gray: Gray = 6, angle = Math.PI / 4, width = 1): this {
+    if (!(spacing > 0)) return this;   // a zero step would never finish
     return this.scoped((g) => {
       g.clipRect(r);
       const diag = Math.hypot(r.width, r.height);
@@ -590,6 +649,7 @@ export class GlyphRaster {
 
   /** Regular dot field. Good for backgrounds that need texture without weight. */
   dots(r: Rect, spacing = 6, gray: Gray = 4, radius = 0.6): this {
+    if (!(spacing > 0)) return this;
     return this.scoped((g) => {
       g.clipRect(r);
       for (let y = r.y + spacing / 2; y < r.y + r.height; y += spacing) {
@@ -602,6 +662,7 @@ export class GlyphRaster {
 
   /** Grid lines. Useful as a chart backdrop or a design overlay. */
   gridLines(r: Rect, stepX: number, stepY = stepX, gray: Gray = 3): this {
+    if (!(stepX > 0) || !(stepY > 0)) return this;
     return this.scoped((g) => {
       g.clipRect(r);
       for (let x = r.x; x <= r.x + r.width; x += stepX) g.vline(x, r.y, r.y + r.height, gray);
@@ -611,6 +672,10 @@ export class GlyphRaster {
 
   /** Copy a level buffer straight onto the surface, nearest-neighbour. */
   blit(pixels: Uint8Array, width: number, height: number, x: number, y: number): this {
+    if (!(width > 0) || !(height > 0)) return this;
+    if (pixels.length < width * height) {
+      throw new Error(`Glyph: blit needs ${width * height} pixels for ${width}×${height}, got ${pixels.length}.`);
+    }
     const scratch = this.getScratch(width, height);
     const sctx = scratch.getContext("2d")!;
     const img = sctx.createImageData(width, height);
@@ -619,6 +684,110 @@ export class GlyphRaster {
     return this.scoped(() => {
       this.ctx.imageSmoothingEnabled = false;
       this.ctx.drawImage(scratch, Math.round(x), Math.round(y), width, height);
+    });
+  }
+
+  /**
+   * Draw a photograph, map tile, album cover — anything with more tones than
+   * the display has — reduced to 16 levels with dithering.
+   *
+   * The source must be readable: an image from another origin needs CORS
+   * headers and `crossOrigin = "anonymous"`, or the browser will refuse to hand
+   * its pixels back.
+   */
+  image(source: CanvasImageSource, r: Rect, opts: ImageOptions = {}): this {
+    const w = Math.round(r.width);
+    const h = Math.round(r.height);
+    if (!(w > 0) || !(h > 0)) return this;
+
+    const size = source as { naturalWidth?: number; videoWidth?: number; displayWidth?: number; width?: number | { baseVal?: { value: number } };
+      naturalHeight?: number; videoHeight?: number; displayHeight?: number; height?: number | { baseVal?: { value: number } } };
+    const dim = (v: unknown): number => (typeof v === "number" ? v : 0);
+    const sw = dim(size.naturalWidth) || dim(size.videoWidth) || dim(size.displayWidth) || dim(size.width);
+    const sh = dim(size.naturalHeight) || dim(size.videoHeight) || dim(size.displayHeight) || dim(size.height);
+    if (!(sw > 0) || !(sh > 0)) return this;          // not loaded yet: nothing to draw
+
+    const scratch = this.getScratch(w, h);
+    const sctx = scratch.getContext("2d", { willReadFrequently: true });
+    if (!sctx) throw new Error("Glyph: Canvas 2D unavailable for image conversion.");
+    sctx.fillStyle = "#000";
+    sctx.fillRect(0, 0, w, h);
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = "high";
+
+    const fit = opts.fit ?? "cover";
+    if (fit === "fill") {
+      sctx.drawImage(source, 0, 0, w, h);
+    } else {
+      const scale = fit === "cover" ? Math.max(w / sw, h / sh) : Math.min(w / sw, h / sh);
+      const dw = sw * scale;
+      const dh = sh * scale;
+      sctx.drawImage(source, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    }
+
+    let data: Uint8ClampedArray;
+    try {
+      data = sctx.getImageData(0, 0, w, h).data;
+    } catch (error) {
+      throw new Error(
+        "Glyph: the image's pixels cannot be read — it was loaded from another origin without CORS. " +
+        `Set crossOrigin = "anonymous" and serve it with Access-Control-Allow-Origin. (${error instanceof Error ? error.message : error})`
+      );
+    }
+
+    const brightness = Number.isFinite(opts.brightness) ? opts.brightness! : 1;
+    const contrast = Number.isFinite(opts.contrast) ? opts.contrast! : 1;
+    const gamma = opts.gamma !== undefined && opts.gamma > 0 ? opts.gamma : 1;
+    const top = clampGray(opts.maxLevel ?? 15);
+    const mode = opts.dither ?? "ordered";
+
+    // Tone, as fractional levels 0..top.
+    const tone = new Float32Array(w * h);
+    for (let i = 0, j = 0; i < tone.length; i++, j += 4) {
+      let v = (0.2126 * data[j] + 0.7152 * data[j + 1] + 0.0722 * data[j + 2]) / 255;
+      v = (v - 0.5) * contrast + 0.5;
+      v *= brightness;
+      v = v <= 0 ? 0 : v >= 1 ? 1 : gamma === 1 ? v : Math.pow(v, 1 / gamma);
+      tone[i] = (opts.invert ? 1 - v : v) * top;
+    }
+
+    const levels = new Uint8Array(w * h);
+    if (mode === "diffusion") {
+      // Floyd–Steinberg, serpentine: alternate rows run the other way so the
+      // error does not pile up into diagonal worms.
+      for (let y = 0; y < h; y++) {
+        const forward = (y & 1) === 0;
+        for (let step = 0; step < w; step++) {
+          const x = forward ? step : w - 1 - step;
+          const i = y * w + x;
+          const wanted = tone[i];
+          const got = wanted <= 0 ? 0 : wanted >= top ? top : Math.round(wanted);
+          levels[i] = got;
+          const err = wanted - got;
+          const ahead = forward ? 1 : -1;
+          const nx = x + ahead;
+          if (nx >= 0 && nx < w) tone[i + ahead] += err * (7 / 16);
+          if (y + 1 < h) {
+            const below = i + w;
+            const px = x - ahead;
+            if (px >= 0 && px < w) tone[below - ahead] += err * (3 / 16);
+            tone[below] += err * (5 / 16);
+            if (nx >= 0 && nx < w) tone[below + ahead] += err * (1 / 16);
+          }
+        }
+      }
+    } else if (mode === "none") {
+      for (let i = 0; i < levels.length; i++) levels[i] = clampGray(tone[i]);
+    } else {
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) levels[y * w + x] = Math.min(top, ditherGray(x, y, tone[y * w + x]));
+      }
+    }
+
+    if (opts.radius === undefined) return this.blit(levels, w, h, r.x, r.y);
+    return this.scoped((layer) => {
+      layer.clipRound({ x: Math.round(r.x), y: Math.round(r.y), width: w, height: h }, opts.radius!);
+      layer.blit(levels, w, h, r.x, r.y);
     });
   }
 
@@ -658,6 +827,7 @@ export class GlyphRaster {
 
   /** Release cached canvases. The raster is unusable afterwards. */
   dispose(): void {
+    if (this.scratch) { this.scratch.width = 0; this.scratch.height = 0; }
     this.scratch = null;
     this.fontSet = null;
     this.canvas.width = 0;

@@ -58,6 +58,7 @@ export interface ListRowOptions {
 }
 /** One row of a list. Selection is a filled well, not a colour change. */
 export declare function listRow(g: GlyphRaster, r: Rect, opts: ListRowOptions): void;
+/** A determinate bar, 0..1, optionally cut into segments by `ticks`. */
 export declare function progressBar(g: GlyphRaster, r: Rect, value: number, opts?: {
     fill?: Gray;
     track?: Gray;
@@ -70,11 +71,13 @@ export declare function segmentedBar(g: GlyphRaster, r: Rect, segments: number, 
     track?: Gray;
     gap?: number;
 }): void;
+/** A battery outline that fills with its charge, 0..1. `x`, `y` are its left edge and vertical centre. */
 export declare function battery(g: GlyphRaster, x: number, y: number, level: number, opts?: {
     width?: number;
     height?: number;
     gray?: Gray;
 }): void;
+/** Signal strength as rising bars: `level` of them lit, out of `bars`. */
 export declare function signalBars(g: GlyphRaster, x: number, y: number, level: number, bars?: number, opts?: {
     height?: number;
 }): void;
@@ -86,7 +89,9 @@ export declare function statusBar(g: GlyphRaster, r: Rect, opts?: {
     signal?: number;
     icons?: GlyphIconName[];
 }): void;
+/** One dot per page, the current one bright — where you are in a set of screens. */
 export declare function pageDots(g: GlyphRaster, cx: number, y: number, count: number, active: number): void;
+/** Labelled tabs with an underline under the active one. */
 export declare function tabBar(g: GlyphRaster, r: Rect, tabs: string[], active: number): void;
 /** Vertical scroll indicator for lists that overflow. */
 export declare function scrollbar(g: GlyphRaster, r: Rect, offset: number, visible: number, total: number): void;
@@ -103,12 +108,15 @@ export declare function tag(g: GlyphRaster, x: number, y: number, text: string, 
     gray?: Gray;
     height?: number;
 }): number;
+/** A count in a bright pill, or a plain dot when no count is given. */
 export declare function badge(g: GlyphRaster, x: number, y: number, count?: number): void;
+/** A labelled button. `primary` is the emphasised one of a group; `focused` is the one the gestures act on. */
 export declare function button(g: GlyphRaster, r: Rect, text: string, opts?: {
     icon?: GlyphIconName;
     primary?: boolean;
     focused?: boolean;
 }): void;
+/** An on/off switch. `x`, `y` are its left edge and vertical centre. */
 export declare function toggle(g: GlyphRaster, x: number, y: number, on: boolean, width?: number): void;
 /** Transient message strip. */
 export declare function toast(g: GlyphRaster, r: Rect, text: string, opts?: {

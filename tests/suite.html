@@ -3,11 +3,19 @@ import {
   ChangeRecorder, GlyphFrame, GlyphApp, GlyphRaster, TILE_LAYOUTS, TileDiff,
   auto, column, fitStyle, grow, hashBytes, inkBudget, minContrast, packGray4, row,
   safe as SAFE, screen as SCREEN, truncate, unpackGray4, validateLayout, wrap, wrapClamped,
-  MAX_IMAGE_CONTAINERS, type as T
+  MAX_IMAGE_CONTAINERS, type as T, loadFontSet
 } from "/src/glyph/index.ts";
 import { screens } from "/src/apps/index.ts";
+import { GlyphRuntime, inputFromEventType } from "/src/glyph/runtime.ts";
+import {
+  barChart, bulletChart, gaugeChart, heatStrip, lineChart, progressBar, rankChart,
+  ringChart, scatterChart, sparkline
+} from "/src/glyph/index.ts";
+import { ImageRawDataUpdateResult, StartUpPageCreateResult } from "@evenrealities/even_hub_sdk";
+import * as Glyph from "/src/glyph/index.ts";
 
 const results = [];
+window.__results = results;   // visible to the runner even if the suite dies midway
 const ok = (name, pass, detail = "") => results.push({ name, pass, detail });
 const ctx = (frame, now, index = 0) => ({
   g: frame.raster, now, screen: { x: 0, y: 0, ...SCREEN }, safe: SAFE,
@@ -347,6 +355,619 @@ for (const s of screens) {
   ok("dispose is idempotent", disposeTwice);
 }
 
-window.__results = results;
+// ─────────────────────────────────────────────────────────────────────────────
+// 0.4.0
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 15. A word wider than the line is broken wherever it falls. It used to be
+//     broken only when it was the first word on its line — anywhere else it was
+//     placed whole and ran straight out of the box.
+{
+  const r = new GlyphRaster({ width: 200, height: 60 });
+  const style = { size: 12 };
+  let overflow = 0, lost = 0;
+  for (let width = 20; width <= 120; width += 7) {
+    const text = "go to Llanfairpwllgwyngyllgogerychwyrndrobwll now";
+    const lines = wrap(r.measure, text, style, width);
+    for (const line of lines) if (r.measure(line, style) > width + 0.01 && [...line].length > 1) overflow++;
+    if (lines.join("").replace(/\s/g, "") !== text.replace(/\s/g, "")) lost++;
+  }
+  ok("wrap breaks a long word mid-paragraph", overflow === 0, `${overflow} overflowing lines`);
+  ok("wrap loses no characters", lost === 0, `${lost} widths`);
+  ok("wrap terminates in a box narrower than a glyph", wrap(r.measure, "abc", style, 0.5).length === 3);
+}
+
+// 16. Tiles are packed straight out of the level buffer. They must be exactly
+//     what slicing and packGray4 would have produced, for every shipped layout.
+for (const [name, layout] of Object.entries(TILE_LAYOUTS)) {
+  const f = new GlyphFrame({ tileLayout: layout });
+  f.raster.clear(0);
+  screens[3].render(ctx(f, 2500, 3));
+  const frame = f.toFrame();
+  let wrong = 0;
+  for (const tile of frame.tiles) {
+    const { x, y, width, height } = tile.rect;
+    const slice = new Uint8Array(width * height);
+    for (let row = 0; row < height; row++) {
+      slice.set(frame.pixels.subarray((y + row) * 576 + x, (y + row) * 576 + x + width), row * width);
+    }
+    const expected = packGray4(slice, width, height);
+    if (expected.length !== tile.pixels.length || expected.some((v, i) => v !== tile.pixels[i])) wrong++;
+    if (hashBytes(expected) !== tile.hash) wrong++;
+  }
+  ok(`tiles pack correctly (${name})`, wrong === 0, `${wrong} mismatches`);
+  f.dispose();
+}
+
+// 17. Bridge event codes. Only four of them are gestures; the rest used to be
+//     reported as taps, so re-entering the app or an IMU sample changed screen.
+{
+  const type = (code) => inputFromEventType(code)?.type ?? null;
+  ok("click arrives as a tap, with or without its code", type(0) === "tap" && type(undefined) === "tap");
+  ok("scroll and double tap map", type(1) === "scroll-up" && type(2) === "scroll-down" && type(3) === "double-tap");
+  ok("foreground changes are lifecycle, not taps", type(4) === "foreground-enter" && type(5) === "foreground-exit");
+  ok("exit notices and IMU reports are not input", [6, 7, 8, 99].every((c) => type(c) === null));
+}
+
+// 18. The transport, against a bridge that records what it is told.
+{
+  const fakeBridge = (delay = 0) => {
+    const bridge = {
+      log: [],                    // container ids, in the order they were written
+      shown: new Map(),           // container id -> PNG bytes as a string
+      fail: new Set(),            // container ids whose next write is refused
+      listeners: new Set(),
+      created: 0,
+      async createStartUpPageContainer() { bridge.created++; return StartUpPageCreateResult.success; },
+      async updateImageRawData(update) {
+        if (delay) await new Promise((r) => setTimeout(r, delay));
+        if (bridge.fail.delete(update.containerID)) return ImageRawDataUpdateResult.sendFailed ?? -1;
+        bridge.log.push(update.containerID);
+        bridge.shown.set(update.containerID, Array.from(update.imageData).join(","));
+        return ImageRawDataUpdateResult.success;
+      },
+      onEvenHubEvent(cb) { bridge.listeners.add(cb); return () => bridge.listeners.delete(cb); },
+      emit(event) { for (const cb of [...bridge.listeners]) cb(event); }
+    };
+    return bridge;
+  };
+
+  // Two frames that differ only inside the top-left quadrant (tile id 10).
+  const f = new GlyphFrame({ tileLayout: TILE_LAYOUTS.quadrants });
+  const draw = (lit) => {
+    f.raster.clear(0);
+    f.raster.rect({ x: 400, y: 200, width: 60, height: 40 }, { fill: 9 });
+    if (lit) f.raster.rect({ x: 20, y: 20, width: 40, height: 40 }, { fill: 15 });
+    return f.toFrame();
+  };
+
+  // 18a. Diffing: a full first frame, then only what changed.
+  {
+    const bridge = fakeBridge();
+    const rt = new GlyphRuntime({ bridge });
+    await rt.start();
+    await rt.render(draw(false));
+    ok("first frame sends every tile", bridge.log.length === 4, bridge.log.join(","));
+    await rt.render(draw(false));
+    ok("an unchanged frame sends nothing", bridge.log.length === 4);
+    await rt.render(draw(true));
+    ok("a local change sends one tile", bridge.log.length === 5 && bridge.log[4] === 10, bridge.log.join(","));
+    ok("stats count PNG bytes separately", rt.stats.sent === 5 && rt.stats.encodedBytes > 0 && rt.stats.bytes === 4 * 20736 + 20736);
+    await rt.stop();
+  }
+
+  // 18b. A tile that changes and changes back while the first change is still
+  //      on the wire. Judged against the last acknowledged state the second
+  //      frame looks clean, is skipped, and the glasses show the first forever.
+  {
+    const bridge = fakeBridge(15);
+    const rt = new GlyphRuntime({ bridge });
+    await rt.start();
+    await rt.render(draw(false));
+    const original = bridge.shown.get(10);
+    const a = rt.render(draw(true));           // in flight…
+    await new Promise((r) => setTimeout(r, 4));
+    const b = rt.render(draw(false));          // …and reverted before it lands
+    await Promise.all([a, b]);
+    ok("a revert during a write still reaches the glasses", bridge.shown.get(10) === original,
+       `tile 10 written ${bridge.log.filter((id) => id === 10).length} times`);
+    await rt.stop();
+  }
+
+  // 18c. Newest frame wins: a slow bridge drops frames instead of queueing them,
+  //      and still ends on the last one.
+  {
+    const bridge = fakeBridge(12);
+    const rt = new GlyphRuntime({ bridge });
+    await rt.start();
+    await rt.render(draw(false));
+    const unlit = bridge.shown.get(10);
+    const before = bridge.log.length;
+    const renders = [];
+    for (let i = 0; i < 12; i++) {
+      renders.push(rt.render(draw(i % 2 === 0)));     // the last paint, i = 11, is unlit
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    await Promise.all(renders);
+    const sentDuring = bridge.log.length - before;
+    ok("a slow bridge does not queue every frame", sentDuring < 12 && rt.stats.dropped > 0,
+       `${sentDuring} writes for 12 paints, ${rt.stats.dropped} dropped`);
+    ok("the glasses end on the newest frame", bridge.shown.get(10) === unlit);
+    await rt.stop();
+  }
+
+  // 18d. A refused write is retried by the next render.
+  {
+    const bridge = fakeBridge();
+    const rt = new GlyphRuntime({ bridge });
+    await rt.start();
+    bridge.fail.add(11);
+    await rt.render(draw(false));
+    ok("a refused tile is not recorded as shown", !bridge.shown.has(11) && bridge.log.length === 3);
+    await rt.render(draw(false));
+    ok("a refused tile is resent", bridge.shown.has(11) && bridge.log.length === 4, bridge.log.join(","));
+    await rt.stop();
+  }
+
+  // 18e. stop() mid-write ends the session; nothing from it is written later,
+  //      and the runtime can be started again.
+  {
+    const bridge = fakeBridge(20);
+    const rt = new GlyphRuntime({ bridge });
+    await rt.start();
+    const pending = rt.render(draw(true));
+    await new Promise((r) => setTimeout(r, 5));
+    await rt.stop();
+    await pending;
+    await new Promise((r) => setTimeout(r, 60));
+    const afterStop = bridge.log.length;
+    ok("stop() halts a write in progress", afterStop <= 1, `${afterStop} writes landed`);
+    await Promise.all([rt.start(), rt.start()]);
+    ok("concurrent start() creates one page", bridge.created === 2, `${bridge.created} pages`);
+    await rt.render(draw(true));
+    ok("a restarted runtime repaints everything", bridge.log.length - afterStop === 4, `${bridge.log.length - afterStop}`);
+    await rt.stop();
+  }
+
+  // 18f. Input, end to end through the bridge.
+  {
+    const bridge = fakeBridge();
+    const rt = new GlyphRuntime({ bridge });
+    await rt.start();
+    await rt.render(draw(false));
+    const seen = [];
+    rt.onInput((event) => seen.push(event.type));
+    bridge.emit({ sysEvent: {} });                       // click: code omitted on the wire
+    bridge.emit({ textEvent: { eventType: 2 } });
+    bridge.emit({ sysEvent: { eventType: 8 } });         // IMU
+    bridge.emit({ sysEvent: { eventType: 6 } });         // abnormal exit
+    bridge.emit({ audioEvent: { audioPcm: new Uint8Array(4) } });
+    bridge.emit({ sysEvent: { eventType: 4 } });         // foreground enter
+    ok("bridge events arrive as the right input", seen.join(",") === "tap,scroll-down,foreground-enter", seen.join(","));
+    const before = bridge.log.length;
+    await rt.render(draw(false));
+    ok("returning to the foreground repaints every tile", bridge.log.length - before === 4, `${bridge.log.length - before}`);
+    await rt.stop();
+  }
+  f.dispose();
+}
+
+// 19. Progress-bar ticks are cut out of the bar, in both surface styles.
+for (const surface of ["outline", "filled"]) {
+  const f = new GlyphFrame({ surface });
+  f.raster.clear(0);
+  progressBar(f.raster, { x: 100, y: 100, width: 200, height: 8 }, 1, { ticks: 4 });
+  const px = f.toLevels();
+  const at = (x) => px[104 * 576 + x];
+  ok(`progress ticks are visible (${surface})`, at(150) < 6 && at(200) < 6 && at(125) === 15,
+     `tick ${at(150)}, bar ${at(125)}`);
+  f.dispose();
+}
+
+// 20. Charts survive the data real sensors produce: nothing yet, one sample,
+//     a gap, a flat line.
+{
+  const f = new GlyphFrame();
+  const g = f.raster;
+  const box = { x: 20, y: 20, width: 200, height: 100 };
+  const cases = { empty: [], single: [3], gap: [1, NaN, 3, 2], flat: [5, 5, 5], unset: [NaN, NaN] };
+  let error = null;
+  try {
+    for (const values of Object.values(cases)) {
+      g.clear(0);
+      lineChart(g, box, [{ values, fill: 3 }], { gridLines: 3, gutter: 24, format: String });
+      sparkline(g, box, values);
+      barChart(g, box, values, { gridLines: 2 });
+      heatStrip(g, box, values);
+      scatterChart(g, box, values.map((y, x) => ({ x, y })), { gridLines: 2, gutter: 24, format: String });
+      rankChart(g, box, values.map((value) => ({ label: "row", value })));
+      ringChart(g, 300, 150, 30, values[0], { value: "x" });
+      gaugeChart(g, 400, 150, 40, values[0], { min: 0, max: 0, ticks: 1, format: String });
+      gaugeChart(g, 400, 150, 40, values[0], { ticks: 0 });
+      bulletChart(g, box, values[0] ?? 0, 0);
+    }
+    barChart(g, box, Array.from({ length: 200000 }, (_, i) => i % 7));   // spread would overflow the stack
+    g.radialGradient(50, 50, 0, 15, 0);
+    g.gradient({ x: 0, y: 0, width: 0, height: 10 }, 0, 15);
+    g.ring(50, 50, 10, 20).sector(50, 50, -4, 0, 1).hatch(box, 0).dots(box, 0);
+  } catch (e) { error = String(e); }
+  ok("charts and primitives tolerate degenerate input", error === null, error ?? "");
+
+  // A gap must not flatten the scale: the finite samples still span the plot.
+  g.clear(0);
+  lineChart(g, box, [{ values: [0, NaN, 10, 0], gray: 15, width: 2 }]);
+  const px = f.toLevels();
+  let top = 0;
+  for (let x = 20; x < 220; x++) if (px[21 * 576 + x] > 0) top++;
+  ok("a gap in a series does not collapse its scale", top > 0, `${top} lit pixels on the top row`);
+  f.dispose();
+}
+
+// 21. A hidden page keeps painting. requestAnimationFrame stops for hidden
+//     pages, and an Even Hub app spends its life in a WebView on a locked phone.
+{
+  let hidden = false;
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
+  const realRaf = window.requestAnimationFrame;
+  let rafCalls = 0;
+  window.requestAnimationFrame = (cb) => { rafCalls++; return realRaf.call(window, cb); };
+
+  let paints = 0;
+  const animated = { name: "tick", animated: true, render: ({ g, now }) => g.text(String(now | 0), 20, 20) };
+  const app = new GlyphApp({ screens: [animated, screens[0]], fps: 50, transitionMs: 0, onPaint: () => paints++ });
+  app.start();
+  await new Promise((r) => setTimeout(r, 120));
+  const visiblePaints = paints;
+
+  hidden = true;
+  document.dispatchEvent(new Event("visibilitychange"));
+  await new Promise((r) => setTimeout(r, 40));
+  paints = 0; rafCalls = 0;
+  await new Promise((r) => setTimeout(r, 250));
+  ok("a hidden page keeps painting", visiblePaints > 2 && paints > 2, `${paints} paints while hidden`);
+  ok("a hidden page does not wait on requestAnimationFrame", rafCalls === 0, `${rafCalls} rAF calls`);
+
+  hidden = false;
+  document.dispatchEvent(new Event("visibilitychange"));
+  await new Promise((r) => setTimeout(r, 80));
+  ok("a visible page goes back to requestAnimationFrame", rafCalls > 0, `${rafCalls} rAF calls`);
+
+  // Lifecycle events are not navigation.
+  app.handleInput({ type: "foreground-enter" });
+  app.handleInput({ type: "foreground-exit" });
+  app.handleInput({ type: "double-tap" });
+  ok("lifecycle events do not change screen", app.screenIndex === 0);
+
+  app.stop();
+  await new Promise((r) => setTimeout(r, 60));
+  paints = 0;
+  await new Promise((r) => setTimeout(r, 120));
+  ok("a stopped app stops painting", paints === 0, `${paints} paints`);
+  app.dispose();
+  window.requestAnimationFrame = realRaf;
+  delete document.visibilityState;
+}
+
+// 22. Fitting a style down scales its line box with it. A 42px leading kept on
+//     a face fitted to 24px floated the value well above where a bottom-aligned
+//     unit sat, so "20.3" and its "m" stopped sharing a baseline.
+{
+  const r = new GlyphRaster({ width: 200, height: 60 });
+  const fitted = fitStyle(r.measure, "1013.2", T.numeralXl, 70);
+  const ratio = fitted.leading / fitted.size;
+  ok("fitStyle scales leading with size", fitted.size < T.numeralXl.size && Math.abs(ratio - T.numeralXl.leading / T.numeralXl.size) < 0.06,
+     `${fitted.size}px on a ${fitted.leading}px line`);
+  const untouched = fitStyle(r.measure, "9", T.numeralXl, 190);
+  ok("fitStyle leaves a style that fits alone", untouched.size === T.numeralXl.size && untouched.leading === T.numeralXl.leading);
+}
+
+// 23. The committed atlas covers every face the reference screens draw. In
+//     `auto` mode a missing face silently falls back to the host's fonts, which
+//     is exactly the machine-dependence the atlas exists to remove.
+{
+  let set = null;
+  try { set = await loadFontSet("/fonts/inter.json"); } catch { /* not built */ }
+  if (set) {
+    const missing = new Set();
+    for (const [index, s] of screens.entries()) {
+      const f = new GlyphFrame();
+      f.raster.useFont(set, "bitmap");
+      for (const now of [0, 1234, 3000, 9999, 60000]) {
+        try { f.raster.clear(0); s.render(ctx(f, now, index)); }
+        catch (e) { missing.add(`${s.name}: ${String(e.message ?? e).split(" and fontMode")[0]}`); }
+      }
+      f.dispose();
+    }
+    ok("bitmap atlas covers every reference screen", missing.size === 0, [...missing].slice(0, 3).join("; "));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 0.5.0 — the component library
+// ─────────────────────────────────────────────────────────────────────────────
+
+const inkIn = (px, x0, y0, x1, y1, min = 1) => {
+  let n = 0;
+  for (let y = Math.max(0, y0); y < Math.min(288, y1); y++) {
+    for (let x = Math.max(0, x0); x < Math.min(576, x1); x++) if (px[y * 576 + x] >= min) n++;
+  }
+  return n;
+};
+
+// 24. Every component, fed the worst data it could be handed: nothing, NaN,
+//     a zero-sized box, a negative count. None of it may throw — a component
+//     that takes the screen down with it because a sensor has not reported is
+//     worse than one that draws nothing.
+{
+  const G = Glyph;
+  const box = { x: 20, y: 20, width: 200, height: 120 };
+  const none = { x: 20, y: 20, width: 0, height: 0 };
+  const bad = [NaN, Infinity, -Infinity, -5, 0];
+  const calls = {
+    headingTape: (g, r, v) => G.headingTape(g, r, v, { span: v, minorEvery: v, labelEvery: v, bug: v }),
+    valueTape: (g, r, v) => G.valueTape(g, r, v, { step: v, labelEvery: v, visible: v, bug: v, min: 0 }),
+    pitchLadder: (g, r, v) => G.pitchLadder(g, r, v, v, { step: v, pxPerDeg: v }),
+    reticle: (g, r, v) => { G.reticle(g, 50, 50, v); G.reticle(g, 50, 50, v, { style: "circle" }); G.reticle(g, 50, 50, v, { style: "dot" }); },
+    targetBox: (g, r, v) => G.targetBox(g, r, { label: "X", detail: "Y", corner: v, locked: true }),
+    deviationBar: (g, r, v) => G.deviationBar(g, r, v, { dots: v }),
+    radarScope: (g, r, v) => G.radarScope(g, 80, 80, v, { rings: v, heading: v, sweep: v, blips: [{ bearing: v, range: v, kind: "triangle", course: v }], rangeLabel: "R" }),
+    clockFace: (g, r, v) => { G.clockFace(g, 80, 80, v, { hours: v, minutes: v, seconds: v }); G.clockFace(g, 80, 80, 40, new Date(2026, 0, 1, 10, 8), { numerals: true }); },
+    levelMeter: (g, r, v) => G.levelMeter(g, r, v, { segments: v, peak: v, hot: v, gap: v }),
+    linearGauge: (g, r, v) => G.linearGauge(g, r, v, { min: v, max: v, ticks: v, minor: v, target: v, format: String, zones: [{ from: v, to: v, gray: 9 }] }),
+    barGauge: (g, r, v) => G.barGauge(g, r, v, { min: v, max: v, ticks: v, target: v, format: String }),
+    scaleBar: (g, r, v) => G.scaleBar(g, 20, 40, v, "1 km"),
+    buttonRow: (g, r) => { G.buttonRow(g, r, []); G.buttonRow(g, r, ["A", "B"], { focused: 9 }); },
+    dialog: (g, r) => G.dialog(g, r, { title: "", message: "", actions: [] }),
+    bottomSheet: (g, r, v) => G.bottomSheet(g, r, { height: v, title: "T" }),
+    menu: (g, r, v) => { G.menu(g, r, []); G.menu(g, r, [{ label: "a" }], { selected: v, offset: v, rowHeight: v }); },
+    callout: (g, r, v) => { for (const pointer of ["top", "bottom", "left", "right", "none"]) G.callout(g, r, "t", { pointer, at: v }); },
+    banner: (g, r) => { for (const kind of ["info", "success", "warning", "error"]) G.banner(g, r, "", { kind, detail: "d" }); },
+    notificationCard: (g, r) => G.notificationCard(g, r, { title: "" }),
+    hintBar: (g, r, v) => { G.hintBar(g, r, []); G.hintBar(g, r, [{ gesture: "tap", label: "" }], { gap: v }); },
+    captions: (g, r) => { G.captions(g, r, ""); G.captions(g, r, "   ", { interim: "x", speaker: "S", maxLines: 0 }); },
+    teleprompter: (g, r, v) => G.teleprompter(g, r, "", v, { anchor: v }),
+    loadingState: (g, r, v) => G.loadingState(g, r, "L", v, { detail: "d" }),
+    indeterminateBar: (g, r, v) => G.indeterminateBar(g, r, v, { period: v }),
+    listeningIndicator: (g, r, v) => { for (const state of ["listening", "processing", "idle"]) G.listeningIndicator(g, 80, 80, v, v, v, { state }); },
+    screenHeader: (g, r) => G.screenHeader(g, r, "", { back: true, subtitle: "s", accessory: "a" }),
+    card: (g, r) => G.card(g, r, { title: "", subtitle: "", selected: true }),
+    statGrid: (g, r, v) => { G.statGrid(g, r, []); G.statGrid(g, r, [{ label: "a", value: "1" }], { columns: v }); },
+    statusDot: (g, r, v) => { for (const state of ["online", "busy", "away", "offline"]) G.statusDot(g, 40, 40, state, v); },
+    avatar: (g, r, v) => { G.avatar(g, 40, 40, v, { presence: "busy" }); G.avatar(g, 40, 40, 12, { initials: "" }); },
+    avatarGroup: (g, r, v) => { G.avatarGroup(g, 20, 40, v, []); G.avatarGroup(g, 20, 40, 10, ["A"], { max: v }); },
+    chatBubble: (g, r) => { G.chatBubble(g, r, ""); G.chatBubble(g, r, "x", { from: "me", name: "N", time: "t" }); },
+    table: (g, r, v) => { G.table(g, r, [], []); G.table(g, r, [{ label: "a", width: v }], [[]], { rowHeight: v, offset: v, selected: v }); },
+    timeline: (g, r, v) => { G.timeline(g, r, []); G.timeline(g, r, [{ title: "" }], { rowHeight: v }); },
+    calendarMonth: (g, r, v) => G.calendarMonth(g, r, v, v, { today: v, selected: v, marked: [v] }),
+    stopLine: (g, r, v) => { G.stopLine(g, r, []); G.stopLine(g, r, [{ name: "" }], { current: v }); G.stopLine(g, r, [{ name: "a" }, { name: "b" }], { current: v, labels: "all" }); },
+    rating: (g, r, v) => G.rating(g, 20, 40, v, { max: v, size: v, gap: v }),
+    breadcrumb: (g, r) => { G.breadcrumb(g, r, []); G.breadcrumb(g, r, ["", "a very long part indeed", "b"]); },
+    pagination: (g, r, v) => G.pagination(g, r, v, v),
+    chipRow: (g, r, v) => { G.chipRow(g, r, []); G.chipRow(g, r, ["a", "b"], { selected: v, gap: v, height: v }); },
+    legend: (g, r, v) => { G.legend(g, r, []); G.legend(g, r, [{ label: "a", marker: "dot" }], { direction: "column", gap: v }); },
+    trendBadge: (g, r, v) => G.trendBadge(g, 20, 40, v),
+    keycap: (g, r, v) => G.keycap(g, 20, 40, "", { height: v }),
+    mediaTransport: (g, r, v) => G.mediaTransport(g, r, { title: "", position: v, duration: v }),
+    waveform: (g, r, v) => { G.waveform(g, r, []); G.waveform(g, r, [v, 0.5], { progress: v, barWidth: v, gap: v }); },
+    equalizer: (g, r, v) => { G.equalizer(g, r, []); G.equalizer(g, r, [v], { segments: v, gap: v, peaks: [v] }); },
+    countdownRing: (g, r, v) => G.countdownRing(g, 80, 80, 30, v, v, { label: "L" }),
+    marquee: (g, r, v) => G.marquee(g, r, "a long line of text that will certainly not fit in this box at all", v, { speed: v, gap: v, pauseMs: v }),
+    typewriter: (g, r, v) => { G.typewriter(g, r, "", v); G.typewriter(g, r, "abc def", v); },
+    focusRing: (g, r, v) => G.focusRing(g, r, v, v),
+    segmentedControl: (g, r, v) => { G.segmentedControl(g, r, [], 0); G.segmentedControl(g, r, ["A", "B"], v, { focused: true }); },
+    pickerWheel: (g, r, v) => { G.pickerWheel(g, r, [], 0); G.pickerWheel(g, r, ["a", "b"], v, { visible: v }); },
+    radioGroup: (g, r, v) => { G.radioGroup(g, r, [], 0); G.radioGroup(g, r, ["a"], v, { rowHeight: v, focused: v }); },
+    checkGroup: (g, r) => G.checkGroup(g, r, ["a", "b"], []),
+    numberStepper: (g, r) => G.numberStepper(g, r, "", { focused: true }),
+    rangeSlider: (g, r, v) => G.rangeSlider(g, r, v, v, { steps: v }),
+    dial: (g, r, v) => G.dial(g, 80, 80, v, v, { ticks: v, valueText: "1", label: "L" }),
+    textField: (g, r) => { G.textField(g, r, ""); G.textField(g, r, "x".repeat(400), { caret: true, label: "L", icon: "search" }); G.textField(g, r, "secret", { secure: true }); },
+    pinDots: (g, r, v) => G.pinDots(g, 80, 80, v, v, { radius: v, gap: v }),
+    keypad: (g, r, v) => { G.keypad(g, r, { keys: [] }); G.keypad(g, r, { keys: [[]] }); G.keypad(g, r, { focused: v, pressed: v, gap: v }); },
+    switchRow: (g, r) => G.switchRow(g, r, "", true, { detail: "d", focused: true, disabled: true }),
+    sliderRow: (g, r, v) => G.sliderRow(g, r, "", v, { valueText: "v", steps: v }),
+    donutChart: (g, r, v) => { G.donutChart(g, 80, 80, v, []); G.donutChart(g, 80, 80, 30, [{ value: v }, { value: v }], { width: v, gap: v, value: "1" }); },
+    stackedBar: (g, r, v) => { G.stackedBar(g, r, []); G.stackedBar(g, r, [{ value: v }, { value: 1, pattern: "hatch" }], { gap: v }); },
+    dotMatrix: (g, r, v) => G.dotMatrix(g, r, v, v, { columns: v }),
+    activityRings: (g, r, v) => { G.activityRings(g, 80, 80, v, []); G.activityRings(g, 80, 80, 30, [v, v], { width: v, gap: v }); },
+    histogram: (g, r, v) => { G.histogram(g, r, []); G.histogram(g, r, [v, 1, 2], { bins: v, min: 0, max: 0, highlight: v }); },
+    rangeChart: (g, r, v) => { G.rangeChart(g, r, [], []); G.rangeChart(g, r, [v, 1, 2], [v, 3, 4], { mid: [v, 2, v] }); },
+    candlestickChart: (g, r, v) => { G.candlestickChart(g, r, []); G.candlestickChart(g, r, [{ open: v, high: v, low: v, close: v }, { open: 1, high: 1, low: 1, close: 1 }]); },
+    sparkBars: (g, r, v) => { G.sparkBars(g, r, []); G.sparkBars(g, r, [v, v]); G.sparkBars(g, r, [v, 1, 2], { gap: v }); },
+    radarChart: (g, r, v) => { G.radarChart(g, 80, 80, 30, ["a"], []); G.radarChart(g, 80, 80, v, ["a", "b", "c"], [{ values: [v] }], { rings: v }); },
+    polarChart: (g, r, v) => { G.polarChart(g, 80, 80, 30, []); G.polarChart(g, 80, 80, v, [v, 1, -1], { max: v, rings: v, labels: ["N"] }); },
+    arrow: (g, r, v) => { g.arrow(10, 10, 10, 10); g.arrow(10, 10, v, v, { stroke: 9 }, v); }
+  };
+
+  const failures = [];
+  for (const surface of ["outline", "filled"]) {
+    const f = new GlyphFrame({ surface });
+    for (const [name, call] of Object.entries(calls)) {
+      for (const r of [box, none]) {
+        for (const v of bad) {
+          try { call(f.raster, r, v); } catch (e) { failures.push(`${name}(${v}): ${String(e.message ?? e).slice(0, 60)}`); }
+        }
+      }
+    }
+    f.toLevels();
+    f.dispose();
+  }
+  ok("no component throws on degenerate input", failures.length === 0,
+     failures.length ? `${failures.length}: ${failures.slice(0, 3).join(" | ")}` : `${Object.keys(calls).length} components`);
+
+  // And the list above is the whole library: a component added without being
+  // added here fails this, rather than quietly going untested.
+  const modules = await Promise.all(["hud", "overlays", "content", "inputs"].map((m) => import(`/src/glyph/${m}.ts`)));
+  const drawn = modules.flatMap((m) => Object.entries(m).filter(([, v]) => typeof v === "function").map(([k]) => k));
+  const skip = new Set(["formatDuration", "gestureGlyph"]);
+  const untested = drawn.filter((name) => !skip.has(name) && !(name in calls));
+  ok("every component is in the degenerate-input test", untested.length === 0, untested.join(", "));
+}
+
+// 25. Images: reduced to 16 levels, never brighter than asked, and — the point
+//     of dithering — still the right brightness on average.
+{
+  const source = document.createElement("canvas");
+  source.width = 64; source.height = 64;
+  const sx = source.getContext("2d");
+  sx.fillStyle = "rgb(128,128,128)";
+  sx.fillRect(0, 0, 64, 64);
+
+  const mean = (dither, extra = {}) => {
+    const f = new GlyphFrame();
+    f.raster.clear(0);
+    f.raster.image(source, { x: 100, y: 100, width: 64, height: 64 }, { dither, ...extra });
+    const px = f.toLevels();
+    let sum = 0, max = 0;
+    for (let y = 100; y < 164; y++) for (let x = 100; x < 164; x++) { sum += px[y * 576 + x]; if (px[y * 576 + x] > max) max = px[y * 576 + x]; }
+    const outside = inkIn(px, 0, 0, 576, 100) + inkIn(px, 0, 164, 576, 288) + inkIn(px, 0, 100, 100, 164) + inkIn(px, 164, 100, 576, 164);
+    f.dispose();
+    return { mean: sum / 4096, max, outside };
+  };
+  const want = (128 / 255) * 15;      // 7.53: between two levels, so only dithering can reach it
+  const ordered = mean("ordered"), diffusion = mean("diffusion"), nearest = mean("none");
+  ok("ordered dither keeps the average tone", Math.abs(ordered.mean - want) < 0.15, `${ordered.mean.toFixed(2)} vs ${want.toFixed(2)}`);
+  ok("error diffusion keeps the average tone", Math.abs(diffusion.mean - want) < 0.15, `${diffusion.mean.toFixed(2)} vs ${want.toFixed(2)}`);
+  ok("no dither snaps to one level", Number.isInteger(nearest.mean), `${nearest.mean}`);
+  ok("an image stays inside its box", ordered.outside === 0 && diffusion.outside === 0, `${ordered.outside + diffusion.outside} stray pixels`);
+  const capped = mean("diffusion", { maxLevel: 6, brightness: 3 });
+  ok("maxLevel caps an image's brightness", capped.max === 6, `brightest level ${capped.max}`);
+  const inverted = mean("ordered", { invert: true });
+  ok("invert flips the tone", Math.abs(inverted.mean - (15 - want)) < 0.15, inverted.mean.toFixed(2));
+
+  // Fit: a wide source in a square box.
+  const wide = document.createElement("canvas");
+  wide.width = 128; wide.height = 32;
+  const wx = wide.getContext("2d");
+  wx.fillStyle = "#fff"; wx.fillRect(0, 0, 128, 32);
+  const f = new GlyphFrame();
+  f.raster.clear(0);
+  f.raster.image(wide, { x: 0, y: 0, width: 64, height: 64 }, { fit: "contain", dither: "none" });
+  f.raster.image(wide, { x: 100, y: 0, width: 64, height: 64 }, { fit: "cover", dither: "none" });
+  const px = f.toLevels();
+  ok("contain letterboxes, cover fills", px[4 * 576 + 32] === 0 && px[32 * 576 + 32] === 15 && px[4 * 576 + 132] === 15);
+  f.dispose();
+}
+
+// 26. Small pure helpers.
+{
+  ok("formatDuration", [0, 75, 3723, NaN, -4].map(Glyph.formatDuration).join(" ") === "0:00 1:15 1:02:03 0:00 0:00",
+     [0, 75, 3723, NaN, -4].map(Glyph.formatDuration).join(" "));
+  const measure = (text, style) => text.length * (style.size ?? 16) * 0.5;
+  const styles = [{ size: 24 }, { size: 15 }, { size: 12 }];
+  ok("pickStyle takes the largest face that fits",
+     Glyph.pickStyle(measure, "1234", styles, 100).size === 24 &&
+     Glyph.pickStyle(measure, "1234", styles, 40).size === 15 &&
+     Glyph.pickStyle(measure, "1234", styles, 5).size === 12);
+}
+
+// 27. Icons: every path parses to something drawable on its 24px grid.
+{
+  const broken = [];
+  for (const name of Glyph.iconNames()) {
+    const path = Glyph.parsePath(Glyph.iconPaths[name]);
+    const b = path.bounds();
+    if (path.commands.length < 2 || !(b.width > 0 || b.height > 0) || b.x < -1 || b.y < -1 || b.x + b.width > 25.5 || b.y + b.height > 25.5) broken.push(name);
+    if (path.commands.some((c) => Object.values(c).some((v) => typeof v === "number" && !Number.isFinite(v)))) broken.push(`${name}!`);
+  }
+  ok("every icon parses and sits on the grid", broken.length === 0, broken.length ? broken.join(", ") : `${Glyph.iconNames().length} icons`);
+}
+
+// 28. Components that report how much they used, so the next thing can be placed.
+{
+  const f = new GlyphFrame();
+  const g = f.raster;
+  const short = Glyph.chatBubble(g, { x: 20, y: 20, width: 200, height: 100 }, "Yes.");
+  const long = Glyph.chatBubble(g, { x: 20, y: 20, width: 200, height: 100 }, "Yes, and the tide turns at half past six, so we should already be past the outer mark.");
+  ok("a chat bubble grows with its text", short > 0 && long > short, `${short} → ${long}`);
+
+  const oneRow = Glyph.chipRow(g, { x: 20, y: 20, width: 400, height: 100 }, ["ALPHA", "BRAVO", "CHARLIE"]);
+  const wrapped = Glyph.chipRow(g, { x: 20, y: 20, width: 90, height: 100 }, ["ALPHA", "BRAVO", "CHARLIE"]);
+  ok("chips wrap onto more rows when the box narrows", oneRow === 20 && wrapped > 60, `${oneRow} → ${wrapped}`);
+
+  const items = Array.from({ length: 12 }, (_, i) => ({ label: `Item ${i}` }));
+  const rows = Glyph.menu(g, { x: 20, y: 20, width: 200, height: 110 }, items, { rowHeight: 26, selected: 11 });
+  ok("menu reports the rows that fit", rows === 4, `${rows}`);
+  ok("table reports the rows that fit",
+     Glyph.table(g, { x: 20, y: 20, width: 200, height: 100 }, [{ label: "A" }], [["1"], ["2"]], { rowHeight: 20 }) === 4);
+  ok("timeline reports the events that fit",
+     Glyph.timeline(g, { x: 20, y: 20, width: 200, height: 50 }, [{ title: "a" }, { title: "b" }, { title: "c" }]) === 2);
+  const content = Glyph.bottomSheet(g, { x: 0, y: 0, width: 576, height: 288 }, { height: 120, title: "T" });
+  ok("a bottom sheet returns the room inside it", content.y > 168 && content.y + content.height <= 288 && content.width === 548,
+     `${content.x},${content.y} ${content.width}×${content.height}`);
+  f.dispose();
+}
+
+// 29. Overlays clear what is under them: on a display where "off" is the only
+//     opaque colour, that is what makes one readable over a busy screen.
+{
+  const f = new GlyphFrame({ surface: "outline" });
+  f.raster.clear(0);
+  f.raster.rect({ x: 0, y: 0, width: 576, height: 288 }, { fill: 9 });
+  Glyph.dialog(f.raster, { x: 150, y: 70, width: 260, height: 130 }, { title: "Title", actions: ["OK"] });
+  Glyph.callout(f.raster, { x: 20, y: 20, width: 100, height: 30 }, "", { pointer: "bottom" });
+  const px = f.toLevels();
+  ok("a dialog knocks out its own area", px[110 * 576 + 280] === 0 && px[60 * 576 + 280] === 9, `inside ${px[110 * 576 + 280]}, outside ${px[60 * 576 + 280]}`);
+  ok("a callout's tail is joined to its bubble", px[50 * 576 + 70] === 0 && px[53 * 576 + 70] === 0, `${px[50 * 576 + 70]}, ${px[53 * 576 + 70]}`);
+  f.dispose();
+}
+
+// 30. Geometry that is easy to get subtly wrong.
+{
+  const f = new GlyphFrame();
+  const g = f.raster;
+
+  // November 2026 starts on a Sunday. Monday-first, that is the last column.
+  g.clear(0);
+  Glyph.calendarMonth(g, { x: 0, y: 0, width: 280, height: 150 }, 2026, 11);
+  let px = f.toLevels();
+  const firstWeek = [0, 1, 2, 3, 4, 5, 6].map((col) => inkIn(px, col * 40 + 4, 13, col * 40 + 36, 34) > 0);
+  ok("the calendar puts the 1st under the right weekday", firstWeek.join() === "false,false,false,false,false,false,true", firstWeek.join());
+  g.clear(0);
+  Glyph.calendarMonth(g, { x: 0, y: 0, width: 280, height: 150 }, 2026, 11, { weekStart: 0 });
+  px = f.toLevels();
+  ok("…and under Sunday when the week starts there", inkIn(px, 4, 13, 36, 34) > 0);
+
+  // A heading tape is the same picture at 0 and at 360, and does not care about the wrap.
+  const tape = (heading) => { g.clear(0); Glyph.headingTape(g, { x: 100, y: 20, width: 300, height: 46 }, heading); return Array.from(f.toLevels()); };
+  const zero = tape(0), full = tape(360), wrapped = tape(-360);
+  ok("heading 0 and 360 draw the same tape", zero.every((v, i) => v === full[i] && v === wrapped[i]));
+  ok("a heading tape stays inside its box", inkIn(zero, 0, 0, 576, 20) + inkIn(zero, 0, 66, 576, 288) + inkIn(zero, 0, 20, 100, 66) + inkIn(zero, 400, 20, 576, 66) === 0);
+
+  // A value tape with a floor draws nothing beneath it.
+  g.clear(0);
+  Glyph.valueTape(g, { x: 100, y: 20, width: 60, height: 200 }, 0, { step: 1, visible: 20, min: 0 });
+  px = f.toLevels();
+  ok("a value tape stops at its minimum", inkIn(px, 100, 135, 150, 220, 6) === 0 && inkIn(px, 100, 20, 150, 105, 6) > 0);
+  for (const edge of ["left", "right"]) {
+    g.clear(0);
+    Glyph.valueTape(g, { x: 100, y: 20, width: 60, height: 200 }, 137, { edge, bug: 140 });
+    px = f.toLevels();
+    const stray = inkIn(px, 0, 0, 576, 20) + inkIn(px, 0, 220, 576, 288) + inkIn(px, 0, 20, 100, 220) + inkIn(px, 160, 20, 576, 220);
+    ok(`a value tape stays inside its box (${edge} edge)`, stray === 0, `${stray} stray pixels`);
+  }
+
+  // A marquee scrolls only when it must, and never draws outside its box.
+  g.clear(0);
+  const still = Glyph.marquee(g, { x: 100, y: 100, width: 200, height: 20 }, "Short", 5000);
+  const moving = Glyph.marquee(g, { x: 100, y: 130, width: 120, height: 20 }, "A line that is much too long to fit in the space it has been given", 5000);
+  px = f.toLevels();
+  ok("a marquee scrolls only when the text does not fit", still === false && moving === true);
+  ok("a marquee is clipped to its box", inkIn(px, 0, 130, 100, 150) + inkIn(px, 220, 130, 576, 150) === 0);
+
+  // Captions keep the newest words: with room for two lines, the lit area is the bottom two.
+  g.clear(0);
+  Glyph.captions(g, { x: 20, y: 20, width: 200, height: 200 }, "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen", { maxLines: 2 });
+  px = f.toLevels();
+  ok("captions show the tail of the text", inkIn(px, 20, 20, 220, 170) === 0 && inkIn(px, 20, 178, 220, 220) > 0);
+
+  // An arrow has a head where it ends.
+  g.clear(0);
+  g.arrow(100, 100, 160, 100, { stroke: 15, width: 2 }, 10);
+  px = f.toLevels();
+  ok("an arrow is widest just behind its tip", inkIn(px, 151, 94, 153, 106, 8) > inkIn(px, 120, 94, 122, 106, 8) && px[100 * 576 + 165] === 0);
+  f.dispose();
+}
+
 window.__done = true;
 </script></body></html>

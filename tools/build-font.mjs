@@ -9,7 +9,7 @@
  * one laptop. Run this whenever the type scale changes; commit the result.
  */
 import { createServer } from "vite";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -18,7 +18,7 @@ const OUT = "public/fonts/inter.json";
 const server = await createServer({ server: { port: 5195 }, logLevel: "silent" });
 await server.listen();
 
-const browser = await chromium.launch();
+const browser = await launchBrowser();
 const page = await browser.newPage();
 const errors = [];
 page.on("pageerror", (error) => errors.push(String(error)));

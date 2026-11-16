@@ -5,11 +5,11 @@
  *   npm run tiles
  */
 import { createServer } from "vite";
-import { chromium } from "playwright";
+import { launchBrowser } from "../tools/browser.mjs";
 
 const server = await createServer({ server: { port: 5196 }, logLevel: "silent" });
 await server.listen();
-const browser = await chromium.launch();
+const browser = await launchBrowser();
 const page = await browser.newPage();
 const errors = [];
 page.on("pageerror", (error) => errors.push(String(error)));

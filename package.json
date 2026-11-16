@@ -1,12 +1,16 @@
 {
   "name": "@gabrielevierti/glyph",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "A graphics and UI framework for Even Realities G2 smart glasses.",
   "type": "module",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/gabrielevierti/glyph.git" },
-  "keywords": ["even-realities", "g2", "smart-glasses", "graphics", "ui", "framebuffer", "gray4"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gabrielevierti/glyph.git"
+  },
+  "keywords": ["even-realities", "g2", "smart-glasses", "graphics", "ui", "components", "hud", "icons", "framebuffer", "gray4"],
   "sideEffects": false,
+  "main": "./lib/glyph.js",
   "types": "./lib/types/index.d.ts",
   "module": "./lib/glyph.js",
   "exports": {
@@ -18,14 +22,15 @@
       "types": "./lib/types/runtime.d.ts",
       "import": "./lib/runtime.js"
     },
+    "./fonts/*": "./lib/fonts/*",
     "./package.json": "./package.json"
   },
-  "files": ["lib", "src/glyph", "README.md", "LICENSE"],
+  "files": ["lib", "src/glyph", "docs", "README.md", "CHANGELOG.md", "LICENSE"],
   "scripts": {
     "dev": "vite",
     "host": "vite --host 0.0.0.0",
     "build": "npm run build:lib && npm run build:app",
-    "build:lib": "tsc -p tsconfig.build.json && vite build --config vite.lib.config.ts",
+    "build:lib": "node tools/clean-lib.mjs && vite build --config vite.lib.config.ts && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "build:app": "vite build",
     "preview": "vite preview",
@@ -34,17 +39,21 @@
     "snapshot": "node tests/snapshot.mjs",
     "tiles": "node tests/tiles.mjs",
     "font": "node tools/build-font.mjs",
+    "catalog": "node tools/catalog.mjs",
     "bench": "node tools/bench.mjs",
     "test:gray-fast": "node --experimental-strip-types tests/gray-fast.mjs",
     "sim": "evenhub-simulator http://localhost:5173",
     "pack": "npm run build:app && evenhub pack",
-    "prepublishOnly": "npm run typecheck && npm run build:lib"
+    "prepublishOnly": "npm run typecheck && npm test && npm run catalog -- --check && npm run build:lib",
+    "check": "npm run typecheck && npm run test:gray-fast && npm test && npm run catalog -- --check && npm run build:lib"
   },
   "peerDependencies": {
     "@evenrealities/even_hub_sdk": ">=0.0.13"
   },
   "peerDependenciesMeta": {
-    "@evenrealities/even_hub_sdk": { "optional": true }
+    "@evenrealities/even_hub_sdk": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@evenrealities/even_hub_sdk": "0.0.13",
@@ -55,5 +64,7 @@
     "typescript": "^5.8.3",
     "vite": "^7.1.0"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

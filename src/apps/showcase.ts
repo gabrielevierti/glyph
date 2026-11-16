@@ -10,7 +10,7 @@ const header = (g:RenderContext['g'], title:string, sub:string) => {
 const footer = (ctx:RenderContext, label:string) => {
   ctx.g.hline(22,554,267,G.hairline);
   ctx.g.text(label,22,277,T.micro,G.tertiary,'left','middle');
-  pageDots(ctx.g, 505,277,ctx.app.screens.length,ctx.app.screenIndex);
+  pageDots(ctx.g, 551-(ctx.app.screens.length-1)*4.5,277,ctx.app.screens.length,ctx.app.screenIndex);
 };
 export const showcaseControls:Screen = {
  name:'UI Kit · Controls',animated:true,

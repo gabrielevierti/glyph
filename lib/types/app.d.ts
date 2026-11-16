@@ -81,6 +81,7 @@ export declare class GlyphApp {
     private readonly onPaint?;
     private readonly onSlowFrame?;
     private frameHandle;
+    private timerHandle;
     private fromLayer;
     private toLayer;
     private transition;
@@ -117,6 +118,21 @@ export declare class GlyphApp {
     handleInput(event: GlyphInputEvent): void;
     /** Paint one frame now, regardless of the dirty flag. */
     paint(): Uint8Array;
+    /**
+     * Arm the next tick.
+     *
+     * `requestAnimationFrame` is the right clock while the page is visible, and
+     * no clock at all once it is not: browsers stop it for hidden pages. An Even
+     * Hub app lives in a WebView on a phone that spends most of its life locked
+     * in a pocket while the glasses are very much still being looked at, so a
+     * hidden page falls back to a timer. Timers are throttled in the background
+     * too — typically to about one a second — but a slow display beats a frozen
+     * one.
+     */
+    private schedule;
+    private cancelScheduled;
+    /** The page was hidden or shown: move to the clock that works there. */
+    private onVisibility;
     private tick;
     start(): void;
     stop(): void;

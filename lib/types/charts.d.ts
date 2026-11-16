@@ -101,3 +101,81 @@ export declare function bulletChart(g: GlyphRaster, box: Rect, value: number, ta
     max?: number;
     gray?: Gray;
 }): void;
+export interface Segment {
+    value: number;
+    gray?: Gray;
+    /** `hatch` draws the segment as an outline filled with lines — a fifth category, or a "projected" one. */
+    pattern?: "solid" | "hatch";
+}
+/** Shares of a total as arcs of a ring, with room in the middle for the total itself. */
+export declare function donutChart(g: GlyphRaster, cx: number, cy: number, radius: number, segments: readonly Segment[], opts?: {
+    width?: number;
+    gap?: number;
+    startAngle?: number;
+    value?: string;
+    label?: string;
+}): void;
+/** Shares of a total along one bar. */
+export declare function stackedBar(g: GlyphRaster, r: Rect, segments: readonly Segment[], opts?: {
+    gap?: number;
+}): void;
+/** A count out of a total, as dots you could actually count. */
+export declare function dotMatrix(g: GlyphRaster, r: Rect, value: number, total: number, opts?: {
+    columns?: number;
+    gray?: Gray;
+}): void;
+/** Several progress rings, one inside the next. Values are 0..1, outermost first. */
+export declare function activityRings(g: GlyphRaster, cx: number, cy: number, radius: number, values: readonly number[], opts?: {
+    width?: number;
+    gap?: number;
+    grays?: readonly Gray[];
+}): void;
+/** How values are spread: counts per bin. `highlight` picks out the bin a given value falls in. */
+export declare function histogram(g: GlyphRaster, box: Rect, values: readonly number[], opts?: {
+    bins?: number;
+    min?: number;
+    max?: number;
+    highlight?: number;
+    gray?: Gray;
+}): void;
+/** A band between a low and a high series, with an optional line through it — a forecast and its uncertainty. */
+export declare function rangeChart(g: GlyphRaster, box: Rect, low: readonly number[], high: readonly number[], opts?: AxisOptions & {
+    mid?: readonly number[];
+    gray?: Gray;
+}): void;
+export interface Candle {
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+}
+/** Open, high, low, close. A rising candle is hollow and a falling one is solid — the convention that needs no colour. */
+export declare function candlestickChart(g: GlyphRaster, box: Rect, candles: readonly Candle[], opts?: AxisOptions & {
+    gap?: number;
+}): void;
+/** Tiny bars with no axes, the newest one bright. A sparkline for things that are counted. */
+export declare function sparkBars(g: GlyphRaster, box: Rect, values: readonly number[], opts?: {
+    gray?: Gray;
+    gap?: number;
+    highlightLast?: boolean;
+    min?: number;
+    max?: number;
+}): void;
+export interface RadarSeries {
+    /** One value per axis, 0..1. */
+    values: readonly number[];
+    gray?: Gray;
+    dash?: number[];
+}
+/** Several measures of one thing on spokes from a centre. Dash a series to tell two apart. */
+export declare function radarChart(g: GlyphRaster, cx: number, cy: number, radius: number, axes: readonly string[], series: readonly RadarSeries[], opts?: {
+    rings?: number;
+    labels?: boolean;
+}): void;
+/** Values by direction — a wind rose. The first value points north; the largest is filled. */
+export declare function polarChart(g: GlyphRaster, cx: number, cy: number, radius: number, values: readonly number[], opts?: {
+    max?: number;
+    labels?: readonly string[];
+    rings?: number;
+    gray?: Gray;
+}): void;

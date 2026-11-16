@@ -43,7 +43,10 @@ export function cachedMeasurer(measure: Measurer, limit = 4096): Measurer {
   };
 }
 
-/** Greedy word wrap. Words longer than the line are broken at character level. */
+/**
+ * Greedy word wrap. A word wider than the line is broken at character level,
+ * wherever in the paragraph it falls — not only when it happens to come first.
+ */
 export function wrap(measure: Measurer, text: string, style: TextStyle, maxWidth: number): string[] {
   const source = prepare(text, style);
   const lines: string[] = [];
@@ -52,26 +55,24 @@ export function wrap(measure: Measurer, text: string, style: TextStyle, maxWidth
     let line = "";
     for (const word of paragraph.split(/\s+/)) {
       const candidate = line ? `${line} ${word}` : word;
-      if (measure(candidate, style) <= maxWidth || line === "") {
-        if (measure(candidate, style) > maxWidth && line === "") {
-          // A single word too wide for the line: break it.
-          let chunk = "";
-          for (const ch of word) {
-            if (measure(chunk + ch, style) > maxWidth && chunk) {
-              lines.push(chunk);
-              chunk = ch;
-            } else {
-              chunk += ch;
-            }
-          }
-          line = chunk;
+      if (measure(candidate, style) <= maxWidth) { line = candidate; continue; }
+
+      // Does not fit after what is already on the line: start a new one.
+      if (line) { lines.push(line); line = ""; }
+      if (measure(word, style) <= maxWidth) { line = word; continue; }
+
+      // The word alone is wider than a line: break it. Every chunk keeps at
+      // least one character, so a box narrower than a glyph still terminates.
+      let chunk = "";
+      for (const ch of word) {
+        if (chunk && measure(chunk + ch, style) > maxWidth) {
+          lines.push(chunk);
+          chunk = ch;
         } else {
-          line = candidate;
+          chunk += ch;
         }
-      } else {
-        lines.push(line);
-        line = word;
       }
+      line = chunk;
     }
     lines.push(line);
   }
@@ -131,8 +132,18 @@ export function fitStyle(
   measure: Measurer, text: string, style: TextStyle,
   maxWidth: number, maxHeight = Infinity, minSize = 9
 ): TextStyle {
-  const ceiling = Math.min(style.size ?? 16, maxHeight);
-  const at = (steps: number): TextStyle => ({ ...style, size: ceiling - steps });
+  const original = style.size ?? 16;
+  const ceiling = Math.min(original, maxHeight);
+  // The line box shrinks with the glyphs. Keeping a 42px leading on a face that
+  // has been fitted down to 24px leaves the text floating in a box nearly twice
+  // its height, so anything aligned to that box's top or bottom lands well away
+  // from the ink — a value and its unit stop sharing a baseline.
+  const at = (steps: number): TextStyle => {
+    const size = ceiling - steps;
+    return style.leading === undefined || size === original
+      ? { ...style, size }
+      : { ...style, size, leading: Math.max(1, Math.round((style.leading * size) / original)) };
+  };
   if (measure(text, at(0)) <= maxWidth) return at(0);
 
   // The walk stopped as soon as the size dropped to or below `minSize`, so the
@@ -149,4 +160,19 @@ export function fitStyle(
     else lo = mid;
   }
   return at(hi);
+}
+
+/**
+ * The first of several styles that fits a width; the last one if none does.
+ *
+ * `fitStyle` shrinks a face one pixel at a time, which is right for a hero
+ * numeral and wrong for anything drawn from a bitmap atlas: 17px is not a size
+ * the atlas has. This steps through sizes that exist — the type scale — so a
+ * fitted label is still a face that was actually built.
+ */
+export function pickStyle(measure: Measurer, text: string, styles: TextStyle[], maxWidth: number): TextStyle {
+  for (const style of styles) {
+    if (measure(text, style) <= maxWidth) return style;
+  }
+  return styles[styles.length - 1] ?? {};
 }

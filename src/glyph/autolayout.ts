@@ -175,8 +175,11 @@ export class ChangeRecorder {
     // Cost of a single rectangle, memoized. Candidates share rectangles heavily,
     // and this is the only expensive part of evaluating one.
     const memo = new Map<number, number>();
+    const keyW = this.width + 1;
+    const keyH = this.height + 1;
     const rectCost = (b: Box): number => {
-      const key = ((b.x * 577 + b.y) * 577 + b.w) * 289 + b.h;
+      // Injective for any surface size, not just 576x288.
+      const key = ((b.x * keyH + b.y) * keyW + b.w) * keyH + b.h;
       const hit = memo.get(key);
       if (hit !== undefined) return hit;
       const value = this.dirtyCount({ x: b.x, y: b.y, width: b.w, height: b.h }) * ((b.w * b.h) >> 1);
